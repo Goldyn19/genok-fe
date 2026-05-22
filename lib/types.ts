@@ -10,7 +10,11 @@ export type Stock = {
   part_number: string
   location: string
   balance: number
+  parent?: string | null
   price?: number | null
+  is_caterpillar?: boolean
+  brand?: string | null
+  is_original?: boolean
 }
 
 export type ActivityItem = {

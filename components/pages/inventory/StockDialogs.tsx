@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 
 import type { Location, Stock } from "@/lib/types"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -15,7 +15,11 @@ type StockDraft = {
   part_number: string
   location: string
   balance: string
+  parent: string
   price: string
+  is_caterpillar: string
+  brand: string
+  is_original: string
 }
 
 function toDraft(stock: Stock | null, locations: Location[]): StockDraft {
@@ -25,7 +29,11 @@ function toDraft(stock: Stock | null, locations: Location[]): StockDraft {
     part_number: stock?.part_number ?? "",
     location: stock?.location ?? defaultLocation,
     balance: stock ? "" : "",
+    parent: stock?.parent ?? "",
     price: stock?.price != null ? String(stock.price) : "",
+    is_caterpillar: String(stock?.is_caterpillar ?? true),
+    brand: stock?.brand ?? "",
+    is_original: String(stock?.is_original ?? true),
   }
 }
 
@@ -42,6 +50,7 @@ function validateDraft(d: StockDraft, mode: "create" | "edit") {
     const price = Number(d.price)
     if (!Number.isFinite(price) || price < 0) errors.price = "Must be a non-negative number"
   }
+  if (d.brand.trim() && d.brand.trim().length > 80) errors.brand = "Too long"
   return errors
 }
 
@@ -49,12 +58,18 @@ export function CreateOrUpdateStockDialog({
   open,
   onOpenChange,
   locations,
+  stockOptions,
+  onSearchLocations,
+  onSearchParentStock,
   stock,
   onSave,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   locations: Location[]
+  stockOptions: Stock[]
+  onSearchLocations?: (q: string) => Promise<Location[]>
+  onSearchParentStock?: (q: string) => Promise<Stock[]>
   stock: Stock | null
   onSave: (next: Stock) => Promise<void>
 }) {
@@ -62,13 +77,127 @@ export function CreateOrUpdateStockDialog({
   const [submitted, setSubmitted] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState("")
+  const [locationQuery, setLocationQuery] = useState("")
+  const [locationMatches, setLocationMatches] = useState<Location[] | null>(null)
+  const [locationSearching, setLocationSearching] = useState(false)
+  const [parentQuery, setParentQuery] = useState("")
+  const [parentMatches, setParentMatches] = useState<Stock[] | null>(null)
+  const [parentSearching, setParentSearching] = useState(false)
 
   const mode: "create" | "edit" = stock ? "edit" : "create"
 
   const locationOptions = useMemo(
-    () => [{ value: "", label: "Select location" }, ...locations.map((l) => ({ value: l.id, label: l.location }))],
-    [locations]
+    () => {
+      const source = locationMatches ?? locations
+      const term = locationQuery.trim().toLowerCase()
+      const filtered = source.filter((l) => !term || l.location.toLowerCase().includes(term))
+      const base = [{ value: "", label: "Select location" }, ...filtered.map((l) => ({ value: l.id, label: l.location }))]
+      if (draft.location && !base.some((o) => o.value === draft.location)) {
+        const selected = (locationMatches ?? locations).find((l) => l.id === draft.location) ?? locations.find((l) => l.id === draft.location)
+        if (selected) base.push({ value: selected.id, label: selected.location })
+      }
+      return base
+    },
+    [locations, locationMatches, locationQuery, draft.location]
   )
+
+  const parentOptions = useMemo(() => {
+    const source = parentMatches ?? stockOptions
+    const term = parentQuery.trim().toLowerCase()
+    const base = source.filter((s) => s.id !== stock?.id)
+    const filtered = base.filter((s) => {
+      if (!term) return true
+      const hay = [s.part_number, s.part_name, s.brand ?? ""].join(" ").toLowerCase()
+      return hay.includes(term)
+    })
+    const sorted = filtered.slice().sort((a, b) => a.part_number.localeCompare(b.part_number))
+    const out = [{ value: "", label: "No parent" }, ...sorted.map((s) => ({ value: s.id, label: `${s.part_number} — ${s.part_name}` }))]
+    if (draft.parent && !out.some((o) => o.value === draft.parent)) {
+      const selected = (parentMatches ?? stockOptions).find((s) => s.id === draft.parent) ?? stockOptions.find((s) => s.id === draft.parent)
+      if (selected) out.push({ value: selected.id, label: `${selected.part_number} — ${selected.part_name}` })
+    }
+    return out
+  }, [stockOptions, parentMatches, parentQuery, stock?.id, draft.parent])
+
+  const locationResults = useMemo(() => {
+    const term = locationQuery.trim().toLowerCase()
+    if (!term) return []
+    const source = locationMatches ?? locations
+    return source.filter((l) => l.location.toLowerCase().includes(term)).slice(0, 8)
+  }, [locationMatches, locations, locationQuery])
+
+  const parentResults = useMemo(() => {
+    const term = parentQuery.trim().toLowerCase()
+    if (!term) return []
+    const source = parentMatches ?? stockOptions
+    return source
+      .filter((s) => s.id !== stock?.id)
+      .filter((s) => {
+        const hay = [s.part_number, s.part_name, s.brand ?? ""].join(" ").toLowerCase()
+        return hay.includes(term)
+      })
+      .slice(0, 8)
+  }, [parentMatches, stockOptions, parentQuery, stock?.id])
+
+  useEffect(() => {
+    if (!open) return
+    if (!onSearchLocations) return
+    const term = locationQuery.trim()
+    if (!term) {
+      setLocationMatches(null)
+      setLocationSearching(false)
+      return
+    }
+
+    let cancelled = false
+    setLocationSearching(true)
+    const t = setTimeout(() => {
+      onSearchLocations(term)
+        .then((rows) => {
+          if (!cancelled) setLocationMatches(rows)
+          if (!cancelled) setLocationSearching(false)
+        })
+        .catch(() => {
+          if (!cancelled) setLocationMatches(null)
+          if (!cancelled) setLocationSearching(false)
+        })
+    }, 250)
+
+    return () => {
+      cancelled = true
+      clearTimeout(t)
+    }
+  }, [open, onSearchLocations, locationQuery])
+
+  useEffect(() => {
+    if (!open) return
+    if (!onSearchParentStock) return
+    const term = parentQuery.trim()
+    if (!term) {
+      setParentMatches(null)
+      setParentSearching(false)
+      return
+    }
+
+    let cancelled = false
+    setParentSearching(true)
+    const t = setTimeout(() => {
+      onSearchParentStock(term)
+        .then((rows) => {
+          if (!cancelled) setParentMatches(rows)
+          if (!cancelled) setParentSearching(false)
+        })
+        .catch(() => {
+          if (!cancelled) setParentMatches(null)
+          if (!cancelled) setParentSearching(false)
+        })
+    }, 250)
+
+    return () => {
+      cancelled = true
+      clearTimeout(t)
+    }
+  }, [open, onSearchParentStock, parentQuery])
 
   const errors = useMemo(() => (submitted ? validateDraft(draft, mode) : {}), [draft, submitted, mode])
 
@@ -82,6 +211,10 @@ export function CreateOrUpdateStockDialog({
           setSubmitted(false)
           setSaving(false)
           setSaveError("")
+          setLocationQuery("")
+          setLocationMatches(null)
+          setParentQuery("")
+          setParentMatches(null)
         }
       }}
     >
@@ -113,9 +246,80 @@ export function CreateOrUpdateStockDialog({
           </div>
 
           <div className="grid gap-2">
+            <div className="text-xs font-medium text-muted-foreground">Brand (optional)</div>
+            <Input value={draft.brand} onChange={(e) => setDraft((p) => ({ ...p, brand: e.target.value }))} placeholder="e.g., Caterpillar" />
+            {errors.brand && <div className="text-xs text-destructive">{errors.brand}</div>}
+          </div>
+
+          <div className="grid gap-2">
             <div className="text-xs font-medium text-muted-foreground">Location</div>
+            <Input value={locationQuery} onChange={(e) => setLocationQuery(e.target.value)} placeholder="Search location…" />
+            {locationQuery.trim() && (
+              <div className="overflow-hidden rounded-md border bg-background">
+                {locationSearching ? (
+                  <div className="px-3 py-2 text-xs text-muted-foreground">Searching…</div>
+                ) : locationResults.length === 0 ? (
+                  <div className="px-3 py-2 text-xs text-muted-foreground">No matches</div>
+                ) : (
+                  <div className="max-h-48 overflow-auto">
+                    {locationResults.map((l) => (
+                      <button
+                        key={l.id}
+                        type="button"
+                        className={cn(
+                          "w-full px-3 py-2 text-left text-sm hover:bg-muted",
+                          l.id === draft.location && "bg-muted"
+                        )}
+                        onClick={() => {
+                          setDraft((p) => ({ ...p, location: l.id }))
+                          setLocationQuery("")
+                          setLocationMatches(null)
+                        }}
+                      >
+                        {l.location}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             <Select value={draft.location} onChange={(v) => setDraft((p) => ({ ...p, location: v }))} options={locationOptions} />
             {errors.location && <div className="text-xs text-destructive">{errors.location}</div>}
+          </div>
+
+          <div className="grid gap-2">
+            <div className="text-xs font-medium text-muted-foreground">Parent Stock (optional)</div>
+            <Input value={parentQuery} onChange={(e) => setParentQuery(e.target.value)} placeholder="Search parent stock…" />
+            {parentQuery.trim() && (
+              <div className="overflow-hidden rounded-md border bg-background">
+                {parentSearching ? (
+                  <div className="px-3 py-2 text-xs text-muted-foreground">Searching…</div>
+                ) : parentResults.length === 0 ? (
+                  <div className="px-3 py-2 text-xs text-muted-foreground">No matches</div>
+                ) : (
+                  <div className="max-h-48 overflow-auto">
+                    {parentResults.map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        className={cn(
+                          "w-full px-3 py-2 text-left text-sm hover:bg-muted",
+                          s.id === draft.parent && "bg-muted"
+                        )}
+                        onClick={() => {
+                          setDraft((p) => ({ ...p, parent: s.id }))
+                          setParentQuery("")
+                          setParentMatches(null)
+                        }}
+                      >
+                        {s.part_number} — {s.part_name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            <Select value={draft.parent} onChange={(v) => setDraft((p) => ({ ...p, parent: v }))} options={parentOptions} />
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -131,6 +335,31 @@ export function CreateOrUpdateStockDialog({
               <div className="text-xs font-medium text-muted-foreground">Price (optional)</div>
               <Input value={draft.price} onChange={(e) => setDraft((p) => ({ ...p, price: e.target.value }))} />
               {errors.price && <div className="text-xs text-destructive">{errors.price}</div>}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-2">
+              <div className="text-xs font-medium text-muted-foreground">Caterpillar</div>
+              <Select
+                value={draft.is_caterpillar}
+                onChange={(v) => setDraft((p) => ({ ...p, is_caterpillar: v }))}
+                options={[
+                  { value: "true", label: "Yes" },
+                  { value: "false", label: "No" },
+                ]}
+              />
+            </div>
+            <div className="grid gap-2">
+              <div className="text-xs font-medium text-muted-foreground">Original</div>
+              <Select
+                value={draft.is_original}
+                onChange={(v) => setDraft((p) => ({ ...p, is_original: v }))}
+                options={[
+                  { value: "true", label: "Yes" },
+                  { value: "false", label: "No" },
+                ]}
+              />
             </div>
           </div>
         </div>
@@ -153,7 +382,11 @@ export function CreateOrUpdateStockDialog({
                 part_number: draft.part_number.trim(),
                 location: draft.location,
                 balance: Number(draft.balance || 0),
+                parent: draft.parent ? draft.parent : null,
                 price: draft.price.trim() ? Number(draft.price) : null,
+                brand: draft.brand.trim() ? draft.brand.trim() : null,
+                is_caterpillar: draft.is_caterpillar === "true",
+                is_original: draft.is_original === "true",
               }
               setSaving(true)
               onSave(next)

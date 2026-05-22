@@ -50,6 +50,18 @@ export function StockDetailSheet({
                 <div className="text-lg font-semibold tabular-nums">{stock.balance}</div>
               </div>
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-lg border bg-card p-4">
+                <div className="text-xs text-muted-foreground">Brand</div>
+                <div className="text-sm font-medium text-foreground">{stock.brand?.trim() ? stock.brand : "—"}</div>
+              </div>
+              <div className="rounded-lg border bg-card p-4">
+                <div className="text-xs text-muted-foreground">Type</div>
+                <div className="text-sm font-medium text-foreground">
+                  {(stock.is_caterpillar ?? true) ? "Caterpillar" : "Other"} / {(stock.is_original ?? true) ? "Original" : "Aftermarket"}
+                </div>
+              </div>
+            </div>
             <div className="rounded-lg border bg-card p-4">
               <div className="text-xs text-muted-foreground">Price</div>
               <div className="text-sm font-medium text-foreground tabular-nums">{formatCurrency(stock.price)}</div>

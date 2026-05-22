@@ -44,7 +44,7 @@ export function DashboardPage() {
             <Link href="/inventory">Open Inventory</Link>
           </Button>
           <Button asChild variant="outline" className="w-full sm:w-auto">
-            <Link href="/parts">Browse Parts</Link>
+            <Link href="/activity">Purchases &amp; Sales</Link>
           </Button>
         </div>
       </div>

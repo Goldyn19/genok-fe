@@ -3,12 +3,14 @@
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
-import { CheckCircle2, Plus, Receipt, Trash2 } from "lucide-react"
+import { CheckCircle2, Loader2, Plus, Receipt, Trash2 } from "lucide-react"
 import { useSession } from "next-auth/react"
 
 import {
   apiAddItemToCart,
   apiCheckoutCart,
+  apiCreateCreditCustomer,
+  apiListCreditCustomers,
   apiGetCart,
   apiRemoveCartItem,
   apiSearchStock,
@@ -16,6 +18,7 @@ import {
   apiUpdateCartItem,
   getApiBaseUrl,
   type ApiCart,
+  type ApiCreditCustomer,
   type ApiStock,
 } from "@/lib/api"
 import { formatMoney } from "@/lib/cartUtils"
@@ -24,6 +27,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { Select } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
 function formatDateTime(ts: string) {
@@ -48,6 +52,16 @@ export function CartDetailsPage() {
 
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
+  const [checkoutMode, setCheckoutMode] = useState<"pay" | "credit">("pay")
+  const [paymentMethod, setPaymentMethod] = useState<"cash" | "bank_transfer" | "pos">("cash")
+  const [creditCustomers, setCreditCustomers] = useState<ApiCreditCustomer[]>([])
+  const [creditCustomerId, setCreditCustomerId] = useState("")
+  const [creditLoading, setCreditLoading] = useState(false)
+  const [creditError, setCreditError] = useState<string | null>(null)
+  const [newCreditCustomerName, setNewCreditCustomerName] = useState("")
+  const [creatingCreditCustomer, setCreatingCreditCustomer] = useState(false)
+  const [checkingOut, setCheckingOut] = useState(false)
+  const [checkoutError, setCheckoutError] = useState<string | null>(null)
 
   const [stockQuery, setStockQuery] = useState("")
   const [stockResults, setStockResults] = useState<ApiStock[]>([])
@@ -101,6 +115,20 @@ export function CartDetailsPage() {
   }, [addOpen])
 
   useEffect(() => {
+    if (!checkoutOpen) return
+    setCheckoutMode("pay")
+    setPaymentMethod("cash")
+    setCheckoutError(null)
+    setCheckingOut(false)
+    setCreditCustomers([])
+    setCreditCustomerId("")
+    setCreditLoading(false)
+    setCreditError(null)
+    setNewCreditCustomerName(cart?.customer_name ?? "")
+    setCreatingCreditCustomer(false)
+  }, [cart?.customer_name, checkoutOpen])
+
+  useEffect(() => {
     if (!addOpen) return
     if (!token) return
     const q = stockQuery.trim()
@@ -130,6 +158,40 @@ export function CartDetailsPage() {
       clearTimeout(t)
     }
   }, [addOpen, apiBaseUrl, stockQuery, token])
+
+  useEffect(() => {
+    if (!checkoutOpen) return
+    if (!token) return
+    let cancelled = false
+
+    ;(async () => {
+      try {
+        setCreditLoading(true)
+        setCreditError(null)
+        const data = await apiListCreditCustomers(apiBaseUrl, token)
+        if (cancelled) return
+        setCreditCustomers(data)
+        if (!creditCustomerId) {
+          const match = data.find((c) => String(c.customer_name).toLowerCase() === String(cart?.customer_name ?? "").toLowerCase())
+          if (match) setCreditCustomerId(match.credit_id)
+        }
+      } catch (e) {
+        if (cancelled) return
+        setCreditCustomers([])
+        const message =
+          typeof e === "object" && e != null && "message" in e && typeof (e as { message?: unknown }).message === "string"
+            ? ((e as { message?: unknown }).message as string)
+            : "Failed to load credit customers"
+        setCreditError(message)
+      } finally {
+        if (!cancelled) setCreditLoading(false)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [apiBaseUrl, cart?.customer_name, checkoutOpen, creditCustomerId, token])
 
   const subtotal = useMemo(() => {
     if (!cart) return 0
@@ -430,7 +492,7 @@ export function CartDetailsPage() {
           <DialogHeader>
             <DialogTitle>Checkout cart</DialogTitle>
           </DialogHeader>
-          <div className="space-y-2">
+          <div className="space-y-4">
             <div className="text-sm text-muted-foreground">Confirm checkout for:</div>
             <div className="text-sm font-semibold text-foreground">{cart.customer_name}</div>
             <div className="rounded-md border bg-card p-3">
@@ -439,31 +501,134 @@ export function CartDetailsPage() {
                 <div className="text-sm font-semibold tabular-nums text-foreground">{formatMoney(subtotal)}</div>
               </div>
             </div>
+
+            <div className="space-y-2">
+              <div className="text-sm text-muted-foreground">Checkout option</div>
+              <Select
+                value={checkoutMode}
+                onChange={(v) => setCheckoutMode(v === "credit" ? "credit" : "pay")}
+                options={[
+                  { value: "pay", label: "Payment (pay now)" },
+                  { value: "credit", label: "Add to customer credit" },
+                ]}
+              />
+            </div>
+
+            {checkoutMode === "pay" ? (
+              <div className="space-y-2">
+                <div className="text-sm text-muted-foreground">Payment method</div>
+                <Select
+                  value={paymentMethod}
+                  onChange={(v) => setPaymentMethod(v === "bank_transfer" ? "bank_transfer" : v === "pos" ? "pos" : "cash")}
+                  options={[
+                    { value: "cash", label: "Cash" },
+                    { value: "bank_transfer", label: "Bank transfer" },
+                    { value: "pos", label: "POS" },
+                  ]}
+                />
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="text-sm text-muted-foreground">Credit customer</div>
+                {creditError && <div className="text-sm text-red-600">{creditError}</div>}
+                {creditLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading customers…
+                  </div>
+                ) : (
+                  <Select
+                    value={creditCustomerId}
+                    onChange={setCreditCustomerId}
+                    options={[
+                      { value: "", label: "Select customer…" },
+                      ...creditCustomers.map((c) => ({ value: c.credit_id, label: c.customer_name })),
+                    ]}
+                  />
+                )}
+
+                <div className="grid gap-2 sm:grid-cols-[1fr_140px]">
+                  <Input
+                    value={newCreditCustomerName}
+                    onChange={(e) => {
+                      setNewCreditCustomerName(e.target.value)
+                      setCheckoutError(null)
+                    }}
+                    placeholder="New customer name"
+                  />
+                  <Button
+                    variant="outline"
+                    className="gap-2"
+                    disabled={!token || creatingCreditCustomer}
+                    onClick={async () => {
+                      if (!token) return
+                      const name = newCreditCustomerName.trim()
+                      if (!name) {
+                        setCheckoutError("Customer name is required")
+                        return
+                      }
+                      try {
+                        setCreatingCreditCustomer(true)
+                        setCheckoutError(null)
+                        const created = await apiCreateCreditCustomer(apiBaseUrl, token, { customer_name: name })
+                        setCreditCustomers((prev) => {
+                          const next = [created, ...prev].slice()
+                          next.sort((a, b) => String(a.customer_name).localeCompare(String(b.customer_name)))
+                          return next
+                        })
+                        setCreditCustomerId(created.credit_id)
+                      } catch (e) {
+                        const message =
+                          typeof e === "object" && e != null && "message" in e && typeof (e as { message?: unknown }).message === "string"
+                            ? ((e as { message?: unknown }).message as string)
+                            : "Failed to create credit customer"
+                        setCheckoutError(message)
+                      } finally {
+                        setCreatingCreditCustomer(false)
+                      }
+                    }}
+                  >
+                    {creatingCreditCustomer ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    Create
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {checkoutError && <div className="text-sm text-red-600">{checkoutError}</div>}
             <div className="text-xs text-muted-foreground">After checkout, this cart becomes read-only.</div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCheckoutOpen(false)}>
+            <Button variant="outline" disabled={checkingOut} onClick={() => setCheckoutOpen(false)}>
               Cancel
             </Button>
             <Button
-              onClick={() => {
+              disabled={checkingOut || !token || (checkoutMode === "credit" && !creditCustomerId)}
+              className="gap-2"
+              onClick={async () => {
                 if (!token) return
-                ;(async () => {
-                  try {
-                    const updated = await apiCheckoutCart(apiBaseUrl, token, cart.id)
-                    setCart(updated)
-                    setCustomerName(updated.customer_name)
-                    setCheckoutOpen(false)
-                  } catch (e) {
-                    const message =
-                      typeof e === "object" && e != null && "message" in e && typeof (e as { message?: unknown }).message === "string"
-                        ? ((e as { message?: unknown }).message as string)
-                        : "Failed to checkout"
-                    setError(message)
-                  }
-                })()
+                try {
+                  setCheckingOut(true)
+                  setCheckoutError(null)
+                  const updated =
+                    checkoutMode === "credit"
+                      ? await apiCheckoutCart(apiBaseUrl, token, cart.id, { payment_method: "credit", credit_customer_id: creditCustomerId })
+                      : await apiCheckoutCart(apiBaseUrl, token, cart.id, { payment_method: paymentMethod })
+                  setCart(updated)
+                  setCustomerName(updated.customer_name)
+                  setCheckoutOpen(false)
+                } catch (e) {
+                  const message =
+                    typeof e === "object" && e != null && "message" in e && typeof (e as { message?: unknown }).message === "string"
+                      ? ((e as { message?: unknown }).message as string)
+                      : "Failed to checkout"
+                  setCheckoutError(message)
+                } finally {
+                  setCheckingOut(false)
+                }
               }}
             >
+              {checkingOut ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               Confirm checkout
             </Button>
           </DialogFooter>

@@ -69,6 +69,51 @@ export type RbacUser = {
   is_active: boolean
 }
 
+export type RbacRole = {
+  id: number
+  name: string
+  description: string
+  group_name: string
+  required_group_id: number
+  is_active: boolean
+  is_system_role: boolean
+  approval_priority: number
+  is_location_based: boolean
+  location_group_template: string
+  user_count: number
+  assignment_count: number
+  created_at: string
+}
+
+export type RbacRoleAssignment = {
+  id: number
+  user: number
+  user_email: string
+  role: number
+  role_name: string
+  role_details: RbacRole
+  location: string | null
+  location_name: string | null
+  normalized_location_name: string | null
+  assigned_by: number | null
+  assigned_by_name: string | null
+  assigned_at: string
+  is_active: boolean
+  reason: string
+}
+
+export type RbacRoleDetail = RbacRole & {
+  group_permissions: RbacPermission[]
+  assignments: Array<{
+    id: number
+    user: { id: number; username: string; email: string; full_name: string }
+    location: { id: string; name: string } | null
+    assigned_by: { id: number; username: string } | null
+    assigned_at: string
+    reason: string
+  }>
+}
+
 export type ApiCartItem = {
   id: string
   product: string
@@ -93,7 +138,11 @@ export type ApiStock = {
   id: string
   part_number: string
   part_name: string
+  parent?: string | null
   price: number | null
+  is_caterpillar?: boolean
+  brand?: string | null
+  is_original?: boolean
   display_balance: number
   location_detail?: {
     id: string
@@ -150,6 +199,12 @@ export type ApiApprovalStep = {
     full_name: string
   } | null
   required_permission: string
+  required_permission_users: Array<{
+    id: number
+    username: string
+    email: string
+    full_name: string
+  }>
 }
 
 export type ApiPurchaseDetail = {
@@ -267,6 +322,38 @@ export type ApiSalesRejectResponse = {
   sales_item_id: string
   status: string
   reason: string
+}
+
+export type ApiCreditCustomer = {
+  credit_id: string
+  customer_name: string
+}
+
+export type ApiCreditTransaction = {
+  id: number
+  customer: string
+  customer_name: string
+  sales: number
+  amount: number
+  created_at: string
+}
+
+export type ApiCreditPayment = {
+  id: number
+  customer: string
+  customer_name: string
+  amount: number
+  paid_at: string
+}
+
+export type ApiCreditCustomerDetail = {
+  credit_id: string
+  customer_name: string
+  transactions: ApiCreditTransaction[]
+  credit_payments: ApiCreditPayment[]
+  total_credit: number
+  total_paid: number
+  balance: number
 }
 
 export type ApiLocation = {
@@ -422,6 +509,74 @@ export async function apiListPermissions(baseUrl: string, token: string) {
   return [] as RbacPermission[]
 }
 
+export async function apiListRoles(baseUrl: string, token: string) {
+  return requestJson<RbacRole[]>({ baseUrl, method: "GET", path: "/roles/roles/", token })
+}
+
+export async function apiCreateRole(
+  baseUrl: string,
+  token: string,
+  payload: {
+    name: string
+    description?: string
+    approval_priority?: number
+    is_location_based?: boolean
+    location_group_template?: string
+    is_active?: boolean
+  }
+) {
+  return requestJson<RbacRole>({
+    baseUrl,
+    method: "POST",
+    path: "/roles/roles/",
+    token,
+    body: payload,
+  })
+}
+
+export async function apiGetRole(baseUrl: string, token: string, roleId: number) {
+  return requestJson<RbacRoleDetail>({
+    baseUrl,
+    method: "GET",
+    path: `/roles/roles/${encodeURIComponent(String(roleId))}/`,
+    token,
+  })
+}
+
+export async function apiListRoleAssignments(baseUrl: string, token: string, filters?: { roleId?: number; userId?: number; locationId?: string; isActive?: boolean }) {
+  const qs = new URLSearchParams()
+  if (filters?.roleId != null) qs.set("role_id", String(filters.roleId))
+  if (filters?.userId != null) qs.set("user_id", String(filters.userId))
+  if (filters?.locationId) qs.set("location_id", filters.locationId)
+  if (filters?.isActive != null) qs.set("is_active", String(filters.isActive))
+  const suffix = qs.toString() ? `?${qs.toString()}` : ""
+  return requestJson<RbacRoleAssignment[]>({ baseUrl, method: "GET", path: `/roles/assignments/${suffix}`, token })
+}
+
+export async function apiCreateRoleAssignment(
+  baseUrl: string,
+  token: string,
+  payload: { user: number; role: number; location?: string | null; reason?: string }
+) {
+  return requestJson<RbacRoleAssignment>({
+    baseUrl,
+    method: "POST",
+    path: "/roles/assignments/",
+    token,
+    body: payload,
+  })
+}
+
+export async function apiDeactivateRoleAssignment(baseUrl: string, token: string, assignmentId: number) {
+  return requestJson<unknown>({
+    baseUrl,
+    method: "POST",
+    path: `/roles/assignments/${encodeURIComponent(String(assignmentId))}/deactivate/`,
+    token,
+    body: {},
+  })
+}
+
 export async function apiCreateLocation(baseUrl: string, token: string | undefined, payload: Omit<Location, "id">) {
   return requestJson<Location>({ baseUrl, method: "POST", path: "/product/location/create/", token, body: payload })
 }
@@ -470,6 +625,38 @@ export async function apiSearchStock(baseUrl: string, token: string, q: string) 
   return [] as ApiStock[]
 }
 
+type ApiPaginated<T> = {
+  count: number
+  next: string | null
+  previous: string | null
+  results: T[]
+}
+
+export async function apiListStockPage(
+  baseUrl: string,
+  token: string,
+  opts: { page: number; page_size?: number; q?: string }
+) {
+  const qs = new URLSearchParams()
+  qs.set("page", String(opts.page))
+  if (opts.page_size != null) qs.set("page_size", String(opts.page_size))
+  if (opts.q && opts.q.trim()) qs.set("q", opts.q.trim())
+
+  const data = await requestJson<unknown>({
+    baseUrl,
+    method: "GET",
+    path: `/product/stock/?${qs.toString()}`,
+    token,
+  })
+
+  if (typeof data === "object" && data != null && "results" in data) {
+    return data as ApiPaginated<ApiStock>
+  }
+
+  const rows = Array.isArray(data) ? (data as ApiStock[]) : ([] as ApiStock[])
+  return { count: rows.length, next: null, previous: null, results: rows } as ApiPaginated<ApiStock>
+}
+
 export async function apiListStock(baseUrl: string, token: string) {
   const data = await requestJson<unknown>({ baseUrl, method: "GET", path: "/product/stock/", token })
   if (Array.isArray(data)) return data as ApiStock[]
@@ -489,6 +676,7 @@ export async function apiCreatePurchase(baseUrl: string, token: string, payload:
   quantity: number
   is_new_product: boolean
   stock?: string | null
+  parent_stock?: string | null
 }) {
   return requestJson<ApiPurchase>({ baseUrl, method: "POST", path: "/purchases/purchases/", token, body: payload })
 }
@@ -525,12 +713,48 @@ export async function apiRemoveCartItem(baseUrl: string, token: string, itemId: 
   return requestJson<unknown>({ baseUrl, method: "DELETE", path: `/cart/items/${encodeURIComponent(itemId)}/`, token })
 }
 
-export async function apiCheckoutCart(baseUrl: string, token: string, cartId: string) {
-  return requestJson<ApiCart>({ baseUrl, method: "POST", path: `/cart/${encodeURIComponent(cartId)}/checkout/`, token })
+export async function apiCheckoutCart(
+  baseUrl: string,
+  token: string,
+  cartId: string,
+  payload?: { payment_method: "cash" | "bank_transfer" | "pos" | "credit"; credit_customer_id?: string }
+) {
+  return requestJson<ApiCart>({
+    baseUrl,
+    method: "POST",
+    path: `/cart/${encodeURIComponent(cartId)}/checkout/`,
+    token,
+    body: payload ?? {},
+  })
 }
 
 export async function apiListPendingApprovals(baseUrl: string, token: string) {
   return requestJson<ApiPurchaseListItem[]>({ baseUrl, method: "GET", path: "/purchases/purchases/pending-approvals/", token })
+}
+
+export async function apiListPurchases(
+  baseUrl: string,
+  token: string,
+  filters?: { status?: string; fromDate?: string; toDate?: string; locationId?: string; createdById?: string; search?: string }
+) {
+  const qs = new URLSearchParams()
+  if (filters?.status) qs.set("status", filters.status)
+  if (filters?.fromDate) qs.set("from_date", filters.fromDate)
+  if (filters?.toDate) qs.set("to_date", filters.toDate)
+  if (filters?.locationId) qs.set("location_id", filters.locationId)
+  if (filters?.createdById) qs.set("created_by_id", filters.createdById)
+  if (filters?.search) qs.set("search", filters.search)
+  const suffix = qs.toString() ? `?${qs.toString()}` : ""
+
+  const data = await requestJson<unknown>({ baseUrl, method: "GET", path: `/purchases/purchases/${suffix}`, token })
+
+  if (Array.isArray(data)) return data as ApiPurchaseListItem[]
+  if (typeof data === "object" && data != null && "results" in data) {
+    const obj = data as Record<string, unknown>
+    const results = obj.results
+    if (Array.isArray(results)) return results as ApiPurchaseListItem[]
+  }
+  return [] as ApiPurchaseListItem[]
 }
 
 export async function apiListMyPurchases(baseUrl: string, token: string, status?: string) {
@@ -570,6 +794,24 @@ export async function apiListMySalesItems(baseUrl: string, token: string) {
   return requestJson<ApiSalesItem[]>({ baseUrl, method: "GET", path: "/purchases/sales-items/my-sales/", token })
 }
 
+export async function apiListSalesItems(baseUrl: string, token: string, filters?: { status?: string; q?: string; partNumber?: string }) {
+  const qs = new URLSearchParams()
+  if (filters?.status) qs.set("status", filters.status)
+  if (filters?.q) qs.set("q", filters.q)
+  if (filters?.partNumber) qs.set("part_number", filters.partNumber)
+  const suffix = qs.toString() ? `?${qs.toString()}` : ""
+
+  const data = await requestJson<unknown>({ baseUrl, method: "GET", path: `/purchases/sales-items/${suffix}`, token })
+
+  if (Array.isArray(data)) return data as ApiSalesItem[]
+  if (typeof data === "object" && data != null && "results" in data) {
+    const obj = data as Record<string, unknown>
+    const results = obj.results
+    if (Array.isArray(results)) return results as ApiSalesItem[]
+  }
+  return [] as ApiSalesItem[]
+}
+
 export async function apiGetSalesItem(baseUrl: string, token: string, salesItemId: string) {
   return requestJson<ApiSalesItem>({
     baseUrl,
@@ -605,6 +847,51 @@ export async function apiRejectSalesItem(baseUrl: string, token: string, salesIt
     path: `/purchases/sales-items/${encodeURIComponent(salesItemId)}/reject/`,
     token,
     body: { reason },
+  })
+}
+
+export async function apiListCreditCustomers(baseUrl: string, token: string) {
+  return requestJson<ApiCreditCustomer[]>({ baseUrl, method: "GET", path: "/payment/customers/", token })
+}
+
+export async function apiCreateCreditCustomer(baseUrl: string, token: string, payload: { customer_name: string }) {
+  return requestJson<ApiCreditCustomer>({ baseUrl, method: "POST", path: "/payment/customers/", token, body: payload })
+}
+
+export async function apiGetCreditCustomer(baseUrl: string, token: string, creditId: string) {
+  return requestJson<ApiCreditCustomerDetail>({
+    baseUrl,
+    method: "GET",
+    path: `/payment/customers/${encodeURIComponent(creditId)}/`,
+    token,
+  })
+}
+
+export async function apiListCreditTransactions(baseUrl: string, token: string, creditId: string) {
+  return requestJson<ApiCreditTransaction[]>({
+    baseUrl,
+    method: "GET",
+    path: `/payment/customers/${encodeURIComponent(creditId)}/transactions/`,
+    token,
+  })
+}
+
+export async function apiListCreditPayments(baseUrl: string, token: string, creditId: string) {
+  return requestJson<ApiCreditPayment[]>({
+    baseUrl,
+    method: "GET",
+    path: `/payment/customers/${encodeURIComponent(creditId)}/payments/`,
+    token,
+  })
+}
+
+export async function apiCreateCreditPayment(baseUrl: string, token: string, creditId: string, payload: { amount: number }) {
+  return requestJson<{ customer: string; amount: number }>({
+    baseUrl,
+    method: "POST",
+    path: `/payment/customers/${encodeURIComponent(creditId)}/payments/`,
+    token,
+    body: { customer: creditId, amount: payload.amount },
   })
 }
 

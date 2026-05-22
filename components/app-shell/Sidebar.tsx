@@ -12,8 +12,9 @@ import { Separator } from "@/components/ui/separator"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 function isActivePath(pathname: string, href: string) {
-  if (href === "/parts" && pathname.startsWith("/parts/")) return true
+  if (href === "/activity" && pathname.startsWith("/activity/")) return true
   if (href === "/carts" && pathname.startsWith("/carts/")) return true
+  if (href === "/credits" && pathname.startsWith("/credits/")) return true
   return pathname === href
 }
 

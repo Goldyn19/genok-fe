@@ -91,6 +91,7 @@ function salesProgress(item: ApiSalesItem) {
 function ApprovalStepRow({ step }: { step: ApiApprovalStep }) {
   const done = step.status === "confirmed"
   const rejected = step.status === "failed"
+  const approvers = step.required_permission_users ?? []
   return (
     <div className="flex items-start gap-3">
       <div className={`mt-0.5 h-6 w-6 rounded-full flex items-center justify-center flex-shrink-0 ${
@@ -112,9 +113,9 @@ function ApprovalStepRow({ step }: { step: ApiApprovalStep }) {
           </Badge>
         </div>
         <p className="text-xs text-muted-foreground mt-0.5">
-          {step.required_permission
-            ? `Permission: ${step.required_permission}`
-            : `Sequence: ${step.sequence}`}
+          {approvers.length > 0
+            ? `Approvers: ${approvers.map((u) => u.full_name || u.email || u.username).join(", ")}`
+            : "Approvers: —"}
         </p>
         {step.approved_by_details && (
           <p className="text-xs text-muted-foreground">

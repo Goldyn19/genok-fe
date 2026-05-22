@@ -15,7 +15,8 @@ import { useUIStore } from "@/store/uiStore"
 const TITLE_BY_ROUTE: Record<string, string> = {
   "/dashboard": "Dashboard",
   "/inventory": "Inventory",
-  "/parts": "Parts",
+  "/activity": "Purchases & Sales",
+  "/credits": "Customer Credit",
   "/carts": "Carts",
   "/notifications": "Notifications",
   "/account": "My Account",
@@ -26,8 +27,16 @@ function breadcrumbItems(pathname: string) {
   if (pathname.startsWith("/parts/")) {
     const partNumber = decodeURIComponent(pathname.replace("/parts/", ""))
     return [
-      { label: "Parts", href: "/parts" },
+      { label: "Inventory", href: "/inventory" },
       { label: partNumber, href: pathname },
+    ]
+  }
+
+  if (pathname.startsWith("/credits/")) {
+    const creditId = decodeURIComponent(pathname.replace("/credits/", ""))
+    return [
+      { label: "Customer Credit", href: "/credits" },
+      { label: creditId, href: pathname },
     ]
   }
 
@@ -53,6 +62,7 @@ export function Topbar() {
 
   const title = useMemo(() => {
     if (pathname.startsWith("/parts/")) return "Part Detail"
+    if (pathname.startsWith("/credits/")) return "Credit Record"
     if (pathname.startsWith("/carts/")) return "Cart Details"
     return TITLE_BY_ROUTE[pathname] ?? "Genok"
   }, [pathname])

@@ -84,7 +84,18 @@ export function StockTable({
           const status = statusBadge(r.balance, lowStockThreshold)
           return (
             <TableRow key={r.id} className={cn("cursor-pointer")} onClick={() => onRowClick(r)}>
-              <TableCell className="font-medium">{r.part_name}</TableCell>
+              <TableCell className="font-medium">
+                <div className="text-sm font-medium text-foreground">{r.part_name}</div>
+                {(r.brand?.trim() || r.is_caterpillar != null || r.is_original != null) && (
+                  <div className="mt-1 flex flex-wrap items-center gap-1">
+                    {r.brand?.trim() && <span className="text-xs text-muted-foreground">{r.brand}</span>}
+                    {(r.is_caterpillar ?? true) && <Badge variant="outline">CAT</Badge>}
+                    {!(r.is_caterpillar ?? true) && <Badge variant="outline">Non-CAT</Badge>}
+                    {(r.is_original ?? true) && <Badge variant="outline">Original</Badge>}
+                    {!(r.is_original ?? true) && <Badge variant="outline">Aftermarket</Badge>}
+                  </div>
+                )}
+              </TableCell>
               <TableCell className="text-muted-foreground">{r.part_number}</TableCell>
               <TableCell className="text-muted-foreground">{locationLabel(locations, r.location)}</TableCell>
               <TableCell className="text-right tabular-nums">{r.balance}</TableCell>
