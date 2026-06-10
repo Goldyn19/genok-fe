@@ -13,6 +13,18 @@ export type LoginResponse = {
   }
 }
 
+export type InviteCreateResponse = {
+  token: string
+  expires_at: string
+  signup_path: string
+}
+
+export type InviteValidateResponse = {
+  valid: boolean
+  email?: string
+  expires_at?: string
+}
+
 export type MyRolesResponse = {
   roles: Array<{
     id: number
@@ -402,6 +414,33 @@ export function getApiBaseUrl() {
 
 export async function apiLogin(baseUrl: string, payload: { email: string; password: string }) {
   return requestJson<LoginResponse>({ baseUrl, method: "POST", path: "/auth/login/", body: payload })
+}
+
+export async function apiCreateSignupInvite(baseUrl: string, token: string, payload: { email: string }) {
+  return requestJson<InviteCreateResponse>({ baseUrl, method: "POST", path: "/auth/invites/", token, body: payload })
+}
+
+export async function apiValidateSignupInvite(baseUrl: string, inviteToken: string) {
+  return requestJson<InviteValidateResponse>({
+    baseUrl,
+    method: "GET",
+    path: `/auth/invites/validate/?token=${encodeURIComponent(inviteToken)}`,
+  })
+}
+
+export async function apiSignupWithInvite(baseUrl: string, payload: {
+  email: string
+  password: string
+  first_name: string
+  last_name: string
+  invite_token: string
+}) {
+  return requestJson<{ message: string; data: { email: string; first_name: string; last_name: string } }>({
+    baseUrl,
+    method: "POST",
+    path: "/auth/signup/",
+    body: payload,
+  })
 }
 
 export async function apiGetMyRoles(baseUrl: string, token: string) {
