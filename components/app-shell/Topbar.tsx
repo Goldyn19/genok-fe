@@ -4,8 +4,8 @@ import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { Menu, Search } from "lucide-react"
 import { useMemo, useState } from "react"
+import { signOut, useSession } from "next-auth/react"
 
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
@@ -56,6 +56,7 @@ export function Topbar() {
   const pathname = usePathname()
   const router = useRouter()
   const searchParams = useSearchParams()
+  const { data: session } = useSession()
   const [q, setQ] = useState(searchParams.get("q") ?? "")
   const mobileNavOpen = useUIStore((s) => s.mobileNavOpen)
   const toggleMobileNavOpen = useUIStore((s) => s.toggleMobileNavOpen)
@@ -68,6 +69,14 @@ export function Topbar() {
   }, [pathname])
 
   const crumbs = useMemo(() => breadcrumbItems(pathname), [pathname])
+
+  const firstName = useMemo(() => {
+    const rawName = (session?.user?.name ?? "").trim()
+    if (rawName) return rawName.split(/\s+/)[0]
+    const rawEmail = (session?.user?.email ?? "").trim()
+    if (rawEmail && rawEmail.includes("@")) return rawEmail.split("@")[0]
+    return "User"
+  }, [session?.user?.email, session?.user?.name])
 
   return (
     <header className="sticky top-0 z-30 border-b bg-background">
@@ -130,11 +139,16 @@ export function Topbar() {
         </div>
 
         <div className="flex items-center gap-2">
-          <Button variant="ghost" className="gap-2">
-            <Avatar className="h-8 w-8">
-              <AvatarFallback>GM</AvatarFallback>
-            </Avatar>
-            <span className="hidden text-sm font-medium sm:inline">Manager</span>
+          <span className="hidden text-sm font-medium text-foreground sm:inline">{firstName}</span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              signOut({ callbackUrl: "/login" })
+            }}
+          >
+            Logout
           </Button>
         </div>
       </div>

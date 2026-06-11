@@ -19,6 +19,10 @@ type AuthUser = {
   refreshToken: string
 }
 
+type RefreshResponse = {
+  access: string
+}
+
 function joinUrl(base: string, path: string) {
   const b = base.endsWith("/") ? base.slice(0, -1) : base
   const p = path.startsWith("/") ? path : `/${path}`
@@ -38,6 +42,39 @@ function decodeJwtPayload(token: string): Record<string, unknown> | null {
     return JSON.parse(json) as Record<string, unknown>
   } catch {
     return null
+  }
+}
+
+function getJwtExpiryMs(accessToken: string) {
+  const payload = decodeJwtPayload(accessToken)
+  const exp = payload?.exp
+  if (typeof exp === "number" && Number.isFinite(exp)) return exp * 1000
+  return null
+}
+
+async function refreshAccessToken(token: Record<string, unknown>) {
+  const apiBaseUrl = (process.env.BACK_END_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "").trim()
+  if (!apiBaseUrl) throw new Error("Missing BACK_END_URL")
+  const refreshToken = token.refreshToken
+  if (typeof refreshToken !== "string" || !refreshToken) throw new Error("Missing refresh token")
+
+  const res = await fetch(joinUrl(apiBaseUrl, "/auth/jwt/refresh/"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ refresh: refreshToken }),
+  })
+
+  if (!res.ok) throw new Error("Failed to refresh token")
+  const data = (await res.json().catch(() => null)) as RefreshResponse | null
+  const nextAccess = data?.access
+  if (!nextAccess) throw new Error("Invalid refresh response")
+
+  const expiresAt = getJwtExpiryMs(nextAccess)
+  return {
+    ...token,
+    accessToken: nextAccess,
+    accessTokenExpiresAt: expiresAt ?? Date.now() + 15 * 60 * 1000,
+    error: undefined,
   }
 }
 
@@ -93,8 +130,19 @@ const authOptions: NextAuthOptions = {
         token.email = u.email
         token.accessToken = u.accessToken
         token.refreshToken = u.refreshToken
+        token.accessTokenExpiresAt = getJwtExpiryMs(u.accessToken) ?? Date.now() + 15 * 60 * 1000
+        token.error = undefined
+        return token
       }
-      return token
+
+      const expiresAt = token.accessTokenExpiresAt
+      if (typeof expiresAt === "number" && Date.now() < expiresAt - 60_000) return token
+
+      try {
+        return await refreshAccessToken(token as unknown as Record<string, unknown>)
+      } catch {
+        return { ...token, error: "RefreshAccessTokenError" }
+      }
     },
     async session({ session, token }) {
       session.user = session.user || { id: "" }
@@ -102,13 +150,15 @@ const authOptions: NextAuthOptions = {
       session.user.email = (token.email as string) || session.user.email
       session.accessToken = token.accessToken as string
       session.refreshToken = token.refreshToken as string
+      session.accessTokenExpiresAt = (token.accessTokenExpiresAt as number) || null
+      session.error = (token.error as string) || null
       return session
     },
   },
   session: {
     strategy: "jwt",
-    maxAge: 2 * 60 * 60,
-    updateAge: 60 * 60,
+    maxAge: 7 * 24 * 60 * 60,
+    updateAge: 15 * 60,
   },
   pages: {
     signIn: "/login",
