@@ -372,6 +372,9 @@ export function InventoryPage() {
             quantity: next.balance,
             is_new_product: true,
             parent_stock: next.parent ?? null,
+            brand: next.brand ?? null,
+            is_caterpillar: next.is_caterpillar ?? true,
+            is_original: next.is_original ?? true,
           })
 
           setNotice(`Purchase request #${purchase.id} created (status: ${purchase.status}). Approvals pending.`)

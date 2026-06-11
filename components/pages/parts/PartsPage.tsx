@@ -12,6 +12,8 @@ import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 
+const PAGE_SIZE = 10
+
 type ActivityRow =
   | {
       kind: "purchase"
@@ -57,10 +59,12 @@ export function PartsPage() {
   const initialQ = searchParams.get("q") ?? ""
   const initialFrom = searchParams.get("from") ?? ""
   const initialTo = searchParams.get("to") ?? ""
+  const initialPage = Math.max(1, Number.parseInt(searchParams.get("page") ?? "1", 10) || 1)
 
   const [q, setQ] = useState(initialQ)
   const [from, setFrom] = useState(initialFrom)
   const [to, setTo] = useState(initialTo)
+  const [page, setPage] = useState(initialPage)
 
   const [purchases, setPurchases] = useState<ApiPurchaseListItem[]>([])
   const [sales, setSales] = useState<ApiSalesItem[]>([])
@@ -164,6 +168,27 @@ export function PartsPage() {
     })
   }, [from, purchases, q, sales, to])
 
+  const totalPages = Math.max(1, Math.ceil(combined.length / PAGE_SIZE))
+  const currentPage = Math.min(page, totalPages)
+  const paginated = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE
+    return combined.slice(start, start + PAGE_SIZE)
+  }, [combined, currentPage])
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages)
+  }, [page, totalPages])
+
+  const buildActivityQuery = (next: { q?: string; from?: string; to?: string; page?: number }) => {
+    const qs = new URLSearchParams()
+    if (next.q?.trim()) qs.set("q", next.q)
+    if (next.from?.trim()) qs.set("from", next.from)
+    if (next.to?.trim()) qs.set("to", next.to)
+    if ((next.page ?? 1) > 1) qs.set("page", String(next.page))
+    const suffix = qs.toString() ? `?${qs.toString()}` : ""
+    router.replace(`/activity${suffix}`)
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -184,12 +209,8 @@ export function PartsPage() {
               onChange={(e) => {
                 const next = e.target.value
                 setQ(next)
-                const qs = new URLSearchParams()
-                if (next.trim()) qs.set("q", next)
-                if (from.trim()) qs.set("from", from)
-                if (to.trim()) qs.set("to", to)
-                const suffix = qs.toString() ? `?${qs.toString()}` : ""
-                router.replace(`/activity${suffix}`)
+                setPage(1)
+                buildActivityQuery({ q: next, from, to, page: 1 })
               }}
               placeholder="Search by part name or number"
             />
@@ -199,12 +220,8 @@ export function PartsPage() {
               onChange={(e) => {
                 const next = e.target.value
                 setFrom(next)
-                const qs = new URLSearchParams()
-                if (q.trim()) qs.set("q", q)
-                if (next.trim()) qs.set("from", next)
-                if (to.trim()) qs.set("to", to)
-                const suffix = qs.toString() ? `?${qs.toString()}` : ""
-                router.replace(`/activity${suffix}`)
+                setPage(1)
+                buildActivityQuery({ q, from: next, to, page: 1 })
               }}
             />
             <Input
@@ -213,12 +230,8 @@ export function PartsPage() {
               onChange={(e) => {
                 const next = e.target.value
                 setTo(next)
-                const qs = new URLSearchParams()
-                if (q.trim()) qs.set("q", q)
-                if (from.trim()) qs.set("from", from)
-                if (next.trim()) qs.set("to", next)
-                const suffix = qs.toString() ? `?${qs.toString()}` : ""
-                router.replace(`/activity${suffix}`)
+                setPage(1)
+                buildActivityQuery({ q, from, to: next, page: 1 })
               }}
             />
           </div>
@@ -245,7 +258,7 @@ export function PartsPage() {
                 </TableRow>
               )}
               {!loading &&
-                combined.map((r) => (
+                paginated.map((r) => (
                   <TableRow key={`${r.kind}-${String(r.id)}`}>
                     <TableCell className="text-sm">{new Date(r.created_at).toLocaleString()}</TableCell>
                     <TableCell className="text-sm">{r.kind === "purchase" ? "Purchase" : "Sale"}</TableCell>
@@ -271,6 +284,45 @@ export function PartsPage() {
               )}
             </TableBody>
           </Table>
+
+          {!loading && combined.length > 0 && (
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-xs text-muted-foreground">
+                Showing <span className="font-medium text-foreground">{paginated.length}</span> of{" "}
+                <span className="font-medium text-foreground">{combined.length}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="inline-flex h-8 items-center rounded-md border px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={() => {
+                    const nextPage = Math.max(1, currentPage - 1)
+                    setPage(nextPage)
+                    buildActivityQuery({ q, from, to, page: nextPage })
+                  }}
+                  disabled={currentPage <= 1}
+                >
+                  Prev
+                </button>
+                <div className="text-xs text-muted-foreground tabular-nums">
+                  Page <span className="font-medium text-foreground">{currentPage}</span> of{" "}
+                  <span className="font-medium text-foreground">{totalPages}</span>
+                </div>
+                <button
+                  type="button"
+                  className="inline-flex h-8 items-center rounded-md border px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={() => {
+                    const nextPage = Math.min(totalPages, currentPage + 1)
+                    setPage(nextPage)
+                    buildActivityQuery({ q, from, to, page: nextPage })
+                  }}
+                  disabled={currentPage >= totalPages}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

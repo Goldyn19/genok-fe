@@ -232,6 +232,9 @@ export type ApiPurchaseDetail = {
   quantity: number
   total_amount: string
   is_new_product: boolean
+  brand?: string | null
+  is_caterpillar?: boolean
+  is_original?: boolean
   stock: string | null
   status: "pending" | "approved" | "confirmed" | "failed"
   created_by: number
@@ -373,6 +376,17 @@ export type ApiLocation = {
   parent: string | null
   location: string
   children?: ApiLocation[]
+}
+
+export type ApiPurchaseUpdatePayload = {
+  name?: string
+  part_number?: string
+  location?: string
+  price?: number | null
+  quantity?: number
+  brand?: string | null
+  is_caterpillar?: boolean
+  is_original?: boolean
 }
 
 function joinUrl(base: string, path: string) {
@@ -664,7 +678,7 @@ export async function apiSearchStock(baseUrl: string, token: string, q: string) 
   return [] as ApiStock[]
 }
 
-type ApiPaginated<T> = {
+export type ApiPaginated<T> = {
   count: number
   next: string | null
   previous: string | null
@@ -716,8 +730,26 @@ export async function apiCreatePurchase(baseUrl: string, token: string, payload:
   is_new_product: boolean
   stock?: string | null
   parent_stock?: string | null
+  brand?: string | null
+  is_caterpillar?: boolean
+  is_original?: boolean
 }) {
   return requestJson<ApiPurchase>({ baseUrl, method: "POST", path: "/purchases/purchases/", token, body: payload })
+}
+
+export async function apiUpdatePurchase(
+  baseUrl: string,
+  token: string,
+  purchaseId: number,
+  payload: ApiPurchaseUpdatePayload
+) {
+  return requestJson<ApiPurchaseDetail>({
+    baseUrl,
+    method: "PATCH",
+    path: `/purchases/purchases/${encodeURIComponent(String(purchaseId))}/`,
+    token,
+    body: payload,
+  })
 }
 
 export async function apiListMyCarts(baseUrl: string, token: string) {
@@ -771,6 +803,31 @@ export async function apiListPendingApprovals(baseUrl: string, token: string) {
   return requestJson<ApiPurchaseListItem[]>({ baseUrl, method: "GET", path: "/purchases/purchases/pending-approvals/", token })
 }
 
+export async function apiListPendingApprovalsPage(
+  baseUrl: string,
+  token: string,
+  opts: { page: number; page_size?: number; search?: string }
+) {
+  const qs = new URLSearchParams()
+  qs.set("page", String(opts.page))
+  if (opts.page_size != null) qs.set("page_size", String(opts.page_size))
+  if (opts.search && opts.search.trim()) qs.set("search", opts.search.trim())
+
+  const data = await requestJson<unknown>({
+    baseUrl,
+    method: "GET",
+    path: `/purchases/purchases/pending-approvals/?${qs.toString()}`,
+    token,
+  })
+
+  if (typeof data === "object" && data != null && "results" in data) {
+    return data as ApiPaginated<ApiPurchaseListItem>
+  }
+
+  const rows = Array.isArray(data) ? (data as ApiPurchaseListItem[]) : ([] as ApiPurchaseListItem[])
+  return { count: rows.length, next: null, previous: null, results: rows } as ApiPaginated<ApiPurchaseListItem>
+}
+
 export async function apiListPurchases(
   baseUrl: string,
   token: string,
@@ -799,6 +856,31 @@ export async function apiListPurchases(
 export async function apiListMyPurchases(baseUrl: string, token: string, status?: string) {
   const suffix = status ? `?status=${encodeURIComponent(status)}` : ""
   return requestJson<ApiPurchaseListItem[]>({ baseUrl, method: "GET", path: `/purchases/purchases/my-purchases/${suffix}`, token })
+}
+
+export async function apiListMyPurchasesPage(
+  baseUrl: string,
+  token: string,
+  opts: { page: number; page_size?: number; status?: string }
+) {
+  const qs = new URLSearchParams()
+  qs.set("page", String(opts.page))
+  if (opts.page_size != null) qs.set("page_size", String(opts.page_size))
+  if (opts.status) qs.set("status", opts.status)
+
+  const data = await requestJson<unknown>({
+    baseUrl,
+    method: "GET",
+    path: `/purchases/purchases/my-purchases/?${qs.toString()}`,
+    token,
+  })
+
+  if (typeof data === "object" && data != null && "results" in data) {
+    return data as ApiPaginated<ApiPurchaseListItem>
+  }
+
+  const rows = Array.isArray(data) ? (data as ApiPurchaseListItem[]) : ([] as ApiPurchaseListItem[])
+  return { count: rows.length, next: null, previous: null, results: rows } as ApiPaginated<ApiPurchaseListItem>
 }
 
 export async function apiGetPurchaseDetail(baseUrl: string, token: string, purchaseId: number) {

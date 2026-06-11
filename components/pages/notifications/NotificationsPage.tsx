@@ -3,22 +3,25 @@
 import { useCallback, useEffect, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import { useSession } from "next-auth/react"
-import { CheckCircle, XCircle, Clock, Eye, ChevronRight } from "lucide-react"
+import { CheckCircle, XCircle, Clock, Eye, ChevronRight, Pencil } from "lucide-react"
 
 import {
   apiApprovePurchase,
   apiGetPurchaseDetail,
+  apiListLocations,
+  apiListMyPurchasesPage,
+  apiListPendingApprovalsPage,
   apiGetSalesApprovalStatus,
   apiGetSalesItem,
-  apiListMyPurchases,
   apiListMySalesItems,
-  apiListPendingApprovals,
   apiListPendingSalesApprovals,
   apiRejectPurchase,
   apiApproveSalesItem,
   apiRejectSalesItem,
+  apiUpdatePurchase,
   getApiBaseUrl,
   type ApiApprovalStep,
+  type ApiLocation,
   type ApiPurchaseDetail,
   type ApiPurchaseListItem,
   type ApiSalesApprovalChainItem,
@@ -53,8 +56,21 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { Input } from "@/components/ui/input"
+import { Select } from "@/components/ui/select"
 
 type TabKey = "purchase-pending" | "purchase-my" | "sales-pending" | "sales-my"
+type PurchaseEditDraft = {
+  name: string
+  part_number: string
+  quantity: string
+  price: string
+  location: string
+  brand: string
+  is_caterpillar: boolean
+  is_original: boolean
+  is_new_product: boolean
+}
+const PURCHASE_PAGE_SIZE = 10
 
 function statusColor(s: string) {
   switch (s) {
@@ -86,6 +102,10 @@ function salesProgress(item: ApiSalesItem) {
   const total = item.approvals.length
   const done = item.approvals.filter((a) => a.status === "confirmed").length
   return total > 0 ? Math.round((done / total) * 100) : 0
+}
+
+function canEditPurchase(item: ApiPurchaseListItem) {
+  return item.status === "pending" && item.approval_progress === 0
 }
 
 function ApprovalStepRow({ step }: { step: ApiApprovalStep }) {
@@ -191,6 +211,10 @@ export function NotificationsPage() {
 
   const [pending, setPending] = useState<ApiPurchaseListItem[]>([])
   const [myRequests, setMyRequests] = useState<ApiPurchaseListItem[]>([])
+  const [pendingCount, setPendingCount] = useState(0)
+  const [myRequestsCount, setMyRequestsCount] = useState(0)
+  const [pendingPage, setPendingPage] = useState(1)
+  const [myRequestsPage, setMyRequestsPage] = useState(1)
   const [pendingLoading, setPendingLoading] = useState(true)
   const [myRequestsLoading, setMyRequestsLoading] = useState(true)
   const [pendingError, setPendingError] = useState<string | null>(null)
@@ -203,10 +227,12 @@ export function NotificationsPage() {
   const [salesPendingError, setSalesPendingError] = useState<string | null>(null)
   const [salesMyError, setSalesMyError] = useState<string | null>(null)
 
+  const [pendingFilter, setPendingFilter] = useState("")
   const [requestFilter, setRequestFilter] = useState("")
   const [salesFilter, setSalesFilter] = useState("")
 
   const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [actionPurchaseId, setActionPurchaseId] = useState<number | null>(null)
   const [detail, setDetail] = useState<ApiPurchaseDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState<string | null>(null)
@@ -232,6 +258,13 @@ export function NotificationsPage() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [approveReason, setApproveReason] = useState("")
   const [rejectReason, setRejectReason] = useState("")
+  const [editingPurchaseId, setEditingPurchaseId] = useState<number | null>(null)
+  const [editDraft, setEditDraft] = useState<PurchaseEditDraft | null>(null)
+  const [editLocations, setEditLocations] = useState<ApiLocation[]>([])
+  const [editLoading, setEditLoading] = useState(false)
+  const [editSaving, setEditSaving] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
+  const [editSuccess, setEditSuccess] = useState<string | null>(null)
 
   useEffect(() => {
     if (sessionStatus === "loading") return
@@ -242,6 +275,52 @@ export function NotificationsPage() {
 
   const canCallApi = Boolean(apiBaseUrl && token)
 
+  const pendingTotalPages = Math.max(1, Math.ceil(pendingCount / PURCHASE_PAGE_SIZE))
+  const myRequestsTotalPages = Math.max(1, Math.ceil(myRequestsCount / PURCHASE_PAGE_SIZE))
+
+  const loadPendingPage = useCallback(
+    async (pageNumber: number) => {
+      if (!canCallApi) return
+      try {
+        setPendingLoading(true)
+        setPendingError(null)
+        const data = await apiListPendingApprovalsPage(apiBaseUrl, token as string, {
+          page: pageNumber,
+          page_size: PURCHASE_PAGE_SIZE,
+          search: pendingFilter,
+        })
+        setPending(data.results)
+        setPendingCount(data.count)
+      } catch (e) {
+        setPendingError(getErrorMessage(e, "Failed to load pending approvals"))
+      } finally {
+        setPendingLoading(false)
+      }
+    },
+    [apiBaseUrl, canCallApi, pendingFilter, token]
+  )
+
+  const loadMyPurchasesPage = useCallback(
+    async (pageNumber: number) => {
+      if (!canCallApi) return
+      try {
+        setMyRequestsLoading(true)
+        setMyRequestsError(null)
+        const data = await apiListMyPurchasesPage(apiBaseUrl, token as string, {
+          page: pageNumber,
+          page_size: PURCHASE_PAGE_SIZE,
+        })
+        setMyRequests(data.results)
+        setMyRequestsCount(data.count)
+      } catch (e) {
+        setMyRequestsError(getErrorMessage(e, "Failed to load your requests"))
+      } finally {
+        setMyRequestsLoading(false)
+      }
+    },
+    [apiBaseUrl, canCallApi, token]
+  )
+
   useEffect(() => {
     if (!canCallApi) return
     let cancelled = false
@@ -250,9 +329,14 @@ export function NotificationsPage() {
       try {
         setPendingLoading(true)
         setPendingError(null)
-        const data = await apiListPendingApprovals(apiBaseUrl, token as string)
+        const data = await apiListPendingApprovalsPage(apiBaseUrl, token as string, {
+          page: pendingPage,
+          page_size: PURCHASE_PAGE_SIZE,
+          search: pendingFilter,
+        })
         if (cancelled) return
-        setPending(data)
+        setPending(data.results)
+        setPendingCount(data.count)
       } catch (e) {
         if (cancelled) return
         setPendingError(getErrorMessage(e, "Failed to load pending approvals"))
@@ -265,11 +349,11 @@ export function NotificationsPage() {
     return () => {
       cancelled = true
     }
-  }, [apiBaseUrl, canCallApi, token])
+  }, [apiBaseUrl, canCallApi, pendingFilter, pendingPage, token])
 
   useEffect(() => {
-    setPendingApprovalCount(pending.length + salesPending.length)
-  }, [pending.length, salesPending.length, setPendingApprovalCount])
+    setPendingApprovalCount(pendingCount + salesPending.length)
+  }, [pendingCount, salesPending.length, setPendingApprovalCount])
 
   useEffect(() => {
     if (!canCallApi) return
@@ -305,9 +389,13 @@ export function NotificationsPage() {
       try {
         setMyRequestsLoading(true)
         setMyRequestsError(null)
-        const data = await apiListMyPurchases(apiBaseUrl, token as string)
+        const data = await apiListMyPurchasesPage(apiBaseUrl, token as string, {
+          page: myRequestsPage,
+          page_size: PURCHASE_PAGE_SIZE,
+        })
         if (cancelled) return
-        setMyRequests(data)
+        setMyRequests(data.results)
+        setMyRequestsCount(data.count)
       } catch (e) {
         if (cancelled) return
         setMyRequestsError(getErrorMessage(e, "Failed to load your requests"))
@@ -320,7 +408,15 @@ export function NotificationsPage() {
     return () => {
       cancelled = true
     }
-  }, [activeTab, apiBaseUrl, canCallApi, token])
+  }, [activeTab, apiBaseUrl, canCallApi, myRequestsPage, token])
+
+  useEffect(() => {
+    if (pendingPage > pendingTotalPages) setPendingPage(pendingTotalPages)
+  }, [pendingPage, pendingTotalPages])
+
+  useEffect(() => {
+    if (myRequestsPage > myRequestsTotalPages) setMyRequestsPage(myRequestsTotalPages)
+  }, [myRequestsPage, myRequestsTotalPages])
 
   useEffect(() => {
     if (!canCallApi) return
@@ -391,20 +487,64 @@ export function NotificationsPage() {
     [apiBaseUrl, canCallApi, token]
   )
 
+  const startEditPurchase = useCallback(
+    async (purchaseId: number) => {
+      if (!canCallApi) return
+      try {
+        setEditLoading(true)
+        setEditError(null)
+        setEditSuccess(null)
+        const tokenStr = token as string
+        const [purchaseDetail, locations] = await Promise.all([
+          apiGetPurchaseDetail(apiBaseUrl, tokenStr, purchaseId),
+          apiListLocations(apiBaseUrl, tokenStr),
+        ])
+        setEditingPurchaseId(purchaseId)
+        setEditLocations(locations)
+        setEditDraft({
+          name: purchaseDetail.name,
+          part_number: purchaseDetail.part_number,
+          quantity: String(purchaseDetail.quantity),
+          price: purchaseDetail.price == null ? "" : String(purchaseDetail.price),
+          location: String(purchaseDetail.location),
+          brand: purchaseDetail.brand ?? "",
+          is_caterpillar: purchaseDetail.is_caterpillar ?? true,
+          is_original: purchaseDetail.is_original ?? true,
+          is_new_product: purchaseDetail.is_new_product,
+        })
+      } catch (e) {
+        setEditError(getErrorMessage(e, "Failed to load purchase for editing"))
+        setEditingPurchaseId(null)
+        setEditDraft(null)
+      } finally {
+        setEditLoading(false)
+      }
+    },
+    [apiBaseUrl, canCallApi, token]
+  )
+
+  const resetEditState = useCallback(() => {
+    setEditingPurchaseId(null)
+    setEditDraft(null)
+    setEditError(null)
+    setEditSuccess(null)
+  }, [])
+
   const handleApprove = async () => {
-    if (!selectedId || !canCallApi) return
+    if (!actionPurchaseId || !canCallApi) return
     setActionLoading(true)
     setActionError(null)
     try {
       const tokenStr = token as string
-      await apiApprovePurchase(apiBaseUrl, tokenStr, selectedId, approveReason || undefined)
+      await apiApprovePurchase(apiBaseUrl, tokenStr, actionPurchaseId, approveReason || undefined)
       setApproveOpen(false)
+      setActionPurchaseId(null)
       setApproveReason("")
-      const newPending = pending.filter((p) => p.id !== selectedId)
-      setPending(newPending)
-      await loadDetail(selectedId)
-      const myUpdated = await apiListMyPurchases(apiBaseUrl, tokenStr)
-      setMyRequests(myUpdated)
+      await loadPendingPage(pendingPage)
+      if (selectedId === actionPurchaseId) {
+        await loadDetail(actionPurchaseId)
+      }
+      await loadMyPurchasesPage(myRequestsPage)
     } catch (e) {
       setActionError(getErrorMessage(e, "Failed to approve"))
     } finally {
@@ -457,7 +597,7 @@ export function NotificationsPage() {
   }
 
   const handleReject = async () => {
-    if (!selectedId || !canCallApi) return
+    if (!actionPurchaseId || !canCallApi) return
     if (!rejectReason.trim()) {
       setActionError("Rejection reason is required")
       return
@@ -466,18 +606,81 @@ export function NotificationsPage() {
     setActionError(null)
     try {
       const tokenStr = token as string
-      await apiRejectPurchase(apiBaseUrl, tokenStr, selectedId, rejectReason.trim())
+      await apiRejectPurchase(apiBaseUrl, tokenStr, actionPurchaseId, rejectReason.trim())
       setRejectOpen(false)
+      setActionPurchaseId(null)
       setRejectReason("")
-      const newPending = pending.filter((p) => p.id !== selectedId)
-      setPending(newPending)
-      await loadDetail(selectedId)
-      const myUpdated = await apiListMyPurchases(apiBaseUrl, tokenStr)
-      setMyRequests(myUpdated)
+      await loadPendingPage(pendingPage)
+      if (selectedId === actionPurchaseId) {
+        await loadDetail(actionPurchaseId)
+      }
+      await loadMyPurchasesPage(myRequestsPage)
     } catch (e) {
       setActionError(getErrorMessage(e, "Failed to reject"))
     } finally {
       setActionLoading(false)
+    }
+  }
+
+  const handleSavePurchaseEdit = async () => {
+    if (!editingPurchaseId || !editDraft || !canCallApi) return
+
+    const quantity = Number.parseInt(editDraft.quantity, 10)
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      setEditError("Quantity must be greater than 0")
+      return
+    }
+
+    const trimmedPrice = editDraft.price.trim()
+    const price = trimmedPrice === "" ? null : Number.parseInt(trimmedPrice, 10)
+    if (trimmedPrice !== "" && (price == null || !Number.isFinite(price) || price < 0)) {
+      setEditError("Price cannot be negative")
+      return
+    }
+
+    if (!editDraft.location) {
+      setEditError("Location is required")
+      return
+    }
+
+    setEditSaving(true)
+    setEditError(null)
+    setEditSuccess(null)
+
+    try {
+      const tokenStr = token as string
+      const updated = await apiUpdatePurchase(apiBaseUrl, tokenStr, editingPurchaseId, {
+        name: editDraft.name.trim(),
+        part_number: editDraft.part_number.trim(),
+        quantity,
+        price,
+        location: editDraft.location,
+        brand: editDraft.is_new_product ? (editDraft.brand.trim() || null) : null,
+        is_caterpillar: editDraft.is_caterpillar,
+        is_original: editDraft.is_original,
+      })
+
+      await loadMyPurchasesPage(myRequestsPage)
+      setEditDraft({
+        name: updated.name,
+        part_number: updated.part_number,
+        quantity: String(updated.quantity),
+        price: updated.price == null ? "" : String(updated.price),
+        location: String(updated.location),
+        brand: updated.brand ?? "",
+        is_caterpillar: updated.is_caterpillar ?? true,
+        is_original: updated.is_original ?? true,
+        is_new_product: updated.is_new_product,
+      })
+      setEditSuccess("Purchase updated successfully.")
+
+      if (selectedId === editingPurchaseId) {
+        setDetail(updated)
+      }
+    } catch (e) {
+      setEditError(getErrorMessage(e, "Failed to update purchase"))
+    } finally {
+      setEditSaving(false)
     }
   }
 
@@ -497,10 +700,10 @@ export function NotificationsPage() {
       s.status.toLowerCase().includes(salesFilter.toLowerCase())
   )
 
-  const selectedPending = pending.find((p) => p.id === selectedId)
+  const selectedPending = pending.find((p) => p.id === actionPurchaseId)
   const selectedSalesPending = salesPending.find((s) => s.id === selectedSalesId)
 
-  const purchasePendingCount = pending.length
+  const purchasePendingCount = pendingCount
   const salesPendingCount = salesPending.length
   const totalPendingCount = purchasePendingCount + salesPendingCount
 
@@ -578,7 +781,18 @@ export function NotificationsPage() {
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Purchase Approvals</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
+              <Input
+                placeholder="Search approvals..."
+                value={pendingFilter}
+                onChange={(e) => {
+                  setPendingFilter(e.target.value)
+                  setPendingPage(1)
+                }}
+                className="w-full sm:max-w-xs"
+              />
+            </div>
             {pendingLoading && (
               <p className="text-sm text-muted-foreground py-8 text-center">Loading...</p>
             )}
@@ -593,80 +807,111 @@ export function NotificationsPage() {
               </p>
             )}
             {!pendingLoading && !pendingError && pending.length > 0 && (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>ID</TableHead>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Part Number</TableHead>
-                    <TableHead>Quantity</TableHead>
-                    <TableHead>Total</TableHead>
-                    <TableHead>Location</TableHead>
-                    <TableHead>Progress</TableHead>
-                    <TableHead>Requested By</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {pending.map((p) => (
-                    <TableRow key={p.id}>
-                      <TableCell className="font-medium">#{p.id}</TableCell>
-                      <TableCell>{p.name}</TableCell>
-                      <TableCell className="font-mono text-xs">{p.part_number}</TableCell>
-                      <TableCell>{p.quantity}</TableCell>
-                      <TableCell>{p.total_amount}</TableCell>
-                      <TableCell>{p.location_details?.location ?? p.location}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-primary rounded-full transition-all"
-                              style={{ width: `${p.approval_progress}%` }}
-                            />
-                          </div>
-                          <span className="text-xs text-muted-foreground">{p.approval_progress}%</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>{p.created_by_name}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {new Date(p.created_at).toLocaleDateString()}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => loadDetail(p.id)}
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            className="bg-green-600 hover:bg-green-700 text-white"
-                            onClick={() => {
-                              setSelectedId(p.id)
-                              setApproveOpen(true)
-                            }}
-                          >
-                            <CheckCircle className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            onClick={() => {
-                              setSelectedId(p.id)
-                              setRejectOpen(true)
-                            }}
-                          >
-                            <XCircle className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
+              <div className="space-y-4">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>ID</TableHead>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Part Number</TableHead>
+                      <TableHead>Quantity</TableHead>
+                      <TableHead>Total</TableHead>
+                      <TableHead>Location</TableHead>
+                      <TableHead>Progress</TableHead>
+                      <TableHead>Requested By</TableHead>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Actions</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {pending.map((p) => (
+                      <TableRow key={p.id}>
+                        <TableCell className="font-medium">#{p.id}</TableCell>
+                        <TableCell>{p.name}</TableCell>
+                        <TableCell className="font-mono text-xs">{p.part_number}</TableCell>
+                        <TableCell>{p.quantity}</TableCell>
+                        <TableCell>{p.total_amount}</TableCell>
+                        <TableCell>{p.location_details?.location ?? p.location}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-primary rounded-full transition-all"
+                                style={{ width: `${p.approval_progress}%` }}
+                              />
+                            </div>
+                            <span className="text-xs text-muted-foreground">{p.approval_progress}%</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>{p.created_by_name}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {new Date(p.created_at).toLocaleDateString()}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => loadDetail(p.id)}
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              className="bg-green-600 hover:bg-green-700 text-white"
+                              onClick={() => {
+                                setActionPurchaseId(p.id)
+                                setApproveOpen(true)
+                              }}
+                            >
+                              <CheckCircle className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => {
+                                setActionPurchaseId(p.id)
+                                setRejectOpen(true)
+                              }}
+                            >
+                              <XCircle className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-xs text-muted-foreground">
+                    Showing <span className="font-medium text-foreground">{pending.length}</span> of{" "}
+                    <span className="font-medium text-foreground">{pendingCount}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPendingPage((p) => Math.max(1, p - 1))}
+                      disabled={pendingPage <= 1}
+                    >
+                      Prev
+                    </Button>
+                    <div className="text-xs text-muted-foreground tabular-nums">
+                      Page <span className="font-medium text-foreground">{pendingPage}</span> of{" "}
+                      <span className="font-medium text-foreground">{pendingTotalPages}</span>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPendingPage((p) => Math.min(pendingTotalPages, p + 1))}
+                      disabled={pendingPage >= pendingTotalPages}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              </div>
             )}
           </CardContent>
         </Card>
@@ -680,7 +925,10 @@ export function NotificationsPage() {
               <Input
                 placeholder="Filter by name, part number, status..."
                 value={requestFilter}
-                onChange={(e) => setRequestFilter(e.target.value)}
+                onChange={(e) => {
+                  setRequestFilter(e.target.value)
+                  setMyRequestsPage(1)
+                }}
                 className="max-w-xs"
               />
             </div>
@@ -700,62 +948,243 @@ export function NotificationsPage() {
               </p>
             )}
             {!myRequestsLoading && !myRequestsError && filteredMyRequests.length > 0 && (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>ID</TableHead>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Part Number</TableHead>
-                    <TableHead>Qty</TableHead>
-                    <TableHead>Total</TableHead>
-                    <TableHead>Location</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Progress</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredMyRequests.map((p) => (
-                    <TableRow key={p.id}>
-                      <TableCell className="font-medium">#{p.id}</TableCell>
-                      <TableCell>{p.name}</TableCell>
-                      <TableCell className="font-mono text-xs">{p.part_number}</TableCell>
-                      <TableCell>{p.quantity}</TableCell>
-                      <TableCell>{p.total_amount}</TableCell>
-                      <TableCell>{p.location_details?.location ?? p.location}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className={statusColor(p.status)}>
-                          <span className="flex items-center gap-1">
-                            {statusIcon(p.status)}
-                            {p.status}
-                          </span>
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-primary rounded-full"
-                              style={{ width: `${p.approval_progress}%` }}
-                            />
-                          </div>
-                          <span className="text-xs text-muted-foreground">{p.approval_progress}%</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {new Date(p.created_at).toLocaleDateString()}
-                      </TableCell>
-                      <TableCell>
-                        <Button size="sm" variant="ghost" onClick={() => loadDetail(p.id)}>
-                          <Eye className="h-4 w-4" />
-                          <ChevronRight className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
+              <div className="space-y-6">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>ID</TableHead>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Part Number</TableHead>
+                      <TableHead>Qty</TableHead>
+                      <TableHead>Total</TableHead>
+                      <TableHead>Location</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Progress</TableHead>
+                      <TableHead>Date</TableHead>
+                      <TableHead></TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredMyRequests.map((p) => (
+                      <TableRow key={p.id}>
+                        <TableCell className="font-medium">#{p.id}</TableCell>
+                        <TableCell>{p.name}</TableCell>
+                        <TableCell className="font-mono text-xs">{p.part_number}</TableCell>
+                        <TableCell>{p.quantity}</TableCell>
+                        <TableCell>{p.total_amount}</TableCell>
+                        <TableCell>{p.location_details?.location ?? p.location}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className={statusColor(p.status)}>
+                            <span className="flex items-center gap-1">
+                              {statusIcon(p.status)}
+                              {p.status}
+                            </span>
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-primary rounded-full"
+                                style={{ width: `${p.approval_progress}%` }}
+                              />
+                            </div>
+                            <span className="text-xs text-muted-foreground">{p.approval_progress}%</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {new Date(p.created_at).toLocaleDateString()}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1">
+                            <Button size="sm" variant="ghost" onClick={() => loadDetail(p.id)}>
+                              <Eye className="h-4 w-4" />
+                              <ChevronRight className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={!canEditPurchase(p) || editLoading || editSaving}
+                              onClick={() => startEditPurchase(p.id)}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-xs text-muted-foreground">
+                    Showing <span className="font-medium text-foreground">{myRequests.length}</span> of{" "}
+                    <span className="font-medium text-foreground">{myRequestsCount}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setMyRequestsPage((p) => Math.max(1, p - 1))}
+                      disabled={myRequestsPage <= 1}
+                    >
+                      Prev
+                    </Button>
+                    <div className="text-xs text-muted-foreground tabular-nums">
+                      Page <span className="font-medium text-foreground">{myRequestsPage}</span> of{" "}
+                      <span className="font-medium text-foreground">{myRequestsTotalPages}</span>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setMyRequestsPage((p) => Math.min(myRequestsTotalPages, p + 1))}
+                      disabled={myRequestsPage >= myRequestsTotalPages}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-foreground">Edit Purchase</h3>
+                      <p className="text-sm text-muted-foreground">
+                        Changes are allowed only before the first approval is confirmed.
+                      </p>
+                    </div>
+                    {editingPurchaseId && (
+                      <Badge variant="outline">Purchase #{editingPurchaseId}</Badge>
+                    )}
+                  </div>
+
+                  {editLoading && (
+                    <p className="mt-4 text-sm text-muted-foreground">Loading purchase details...</p>
+                  )}
+
+                  {!editLoading && !editDraft && (
+                    <p className="mt-4 text-sm text-muted-foreground">
+                      Select a purchase with the edit button to update it.
+                    </p>
+                  )}
+
+                  {editDraft && (
+                    <div className="mt-4 space-y-4">
+                      {editError && (
+                        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                          {editError}
+                        </div>
+                      )}
+                      {editSuccess && (
+                        <div className="rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-700">
+                          {editSuccess}
+                        </div>
+                      )}
+
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium">Name</label>
+                          <Input
+                            value={editDraft.name}
+                            onChange={(e) => setEditDraft((prev) => (prev ? { ...prev, name: e.target.value } : prev))}
+                            placeholder="Purchase name"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium">Part Number</label>
+                          <Input
+                            value={editDraft.part_number}
+                            onChange={(e) => setEditDraft((prev) => (prev ? { ...prev, part_number: e.target.value } : prev))}
+                            placeholder="Part number"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium">Quantity</label>
+                          <Input
+                            type="number"
+                            min="1"
+                            value={editDraft.quantity}
+                            onChange={(e) => setEditDraft((prev) => (prev ? { ...prev, quantity: e.target.value } : prev))}
+                            placeholder="Quantity"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium">Price</label>
+                          <Input
+                            type="number"
+                            min="0"
+                            value={editDraft.price}
+                            onChange={(e) => setEditDraft((prev) => (prev ? { ...prev, price: e.target.value } : prev))}
+                            placeholder="Price"
+                          />
+                        </div>
+                        <div className="space-y-2 sm:col-span-2">
+                          <label className="text-sm font-medium">Location</label>
+                          <Select
+                            value={editDraft.location}
+                            onChange={(value) => setEditDraft((prev) => (prev ? { ...prev, location: value } : prev))}
+                            options={[
+                              { value: "", label: "Select location" },
+                              ...editLocations.map((location) => ({
+                                value: String(location.id),
+                                label: location.location,
+                              })),
+                            ]}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium">Brand</label>
+                          <Input
+                            value={editDraft.brand}
+                            disabled={!editDraft.is_new_product}
+                            onChange={(e) => setEditDraft((prev) => (prev ? { ...prev, brand: e.target.value } : prev))}
+                            placeholder="Brand"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium">Caterpillar</label>
+                          <Select
+                            value={editDraft.is_caterpillar ? "true" : "false"}
+                            onChange={(value) => setEditDraft((prev) => (prev ? { ...prev, is_caterpillar: value === "true" } : prev))}
+                            disabled={!editDraft.is_new_product}
+                            options={[
+                              { value: "true", label: "Caterpillar" },
+                              { value: "false", label: "Other" },
+                            ]}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium">Original</label>
+                          <Select
+                            value={editDraft.is_original ? "true" : "false"}
+                            onChange={(value) => setEditDraft((prev) => (prev ? { ...prev, is_original: value === "true" } : prev))}
+                            disabled={!editDraft.is_new_product}
+                            options={[
+                              { value: "true", label: "Original" },
+                              { value: "false", label: "CHINA" },
+                            ]}
+                          />
+                        </div>
+                      </div>
+
+                      {!editDraft.is_new_product && (
+                        <p className="text-sm text-muted-foreground">
+                          Brand and quality fields are inherited from the selected stock for existing products.
+                        </p>
+                      )}
+
+                      <div className="flex gap-2">
+                        <Button onClick={handleSavePurchaseEdit} disabled={editSaving}>
+                          {editSaving ? "Saving..." : "Save Changes"}
+                        </Button>
+                        <Button variant="outline" onClick={resetEditState} disabled={editSaving}>
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
             )}
           </CardContent>
         </Card>
@@ -970,29 +1399,13 @@ export function NotificationsPage() {
 
           {detail && !detailLoading && !detailError && (
             <div className="mt-6 space-y-6">
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <p className="text-xs text-muted-foreground">Name</p>
-                  <p className="font-medium">{detail.name}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Part Number</p>
-                  <p className="font-mono">{detail.part_number}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Quantity</p>
-                  <p className="font-medium">{detail.quantity}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Total Amount</p>
-                  <p className="font-medium">{detail.total_amount}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Location</p>
-                  <p>{detail.location_details?.location ?? detail.location}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Status</p>
+              <div className="rounded-lg border bg-muted/20 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Purchase Summary</p>
+                    <h3 className="text-lg font-semibold leading-tight text-foreground">{detail.name}</h3>
+                    <p className="font-mono text-sm text-muted-foreground">{detail.part_number}</p>
+                  </div>
                   <Badge variant="outline" className={statusColor(detail.status)}>
                     <span className="flex items-center gap-1">
                       {statusIcon(detail.status)}
@@ -1000,22 +1413,55 @@ export function NotificationsPage() {
                     </span>
                   </Badge>
                 </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Requested By</p>
-                  <p>{detail.created_by_details.full_name}</p>
-                  <p className="text-xs text-muted-foreground">@{detail.created_by_details.username}</p>
+
+                <div className="mt-4 grid grid-cols-2 gap-3">
+                  <div className="rounded-md border bg-background p-3">
+                    <p className="text-xs text-muted-foreground">Quantity</p>
+                    <p className="mt-1 text-xl font-semibold text-foreground">{detail.quantity}</p>
+                  </div>
+                  <div className="rounded-md border bg-background p-3">
+                    <p className="text-xs text-muted-foreground">Total Amount</p>
+                    <p className="mt-1 text-xl font-semibold text-foreground">{detail.total_amount}</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">New Product</p>
-                  <p>{detail.is_new_product ? "Yes" : "No"}</p>
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <Badge variant="secondary">{detail.is_new_product ? "New Product" : "Existing Product"}</Badge>
+                  <Badge variant="outline">{(detail.is_caterpillar ?? true) ? "Caterpillar" : "Other"}</Badge>
+                  <Badge
+                    variant="outline"
+                    className={!(detail.is_original ?? true) ? "border-red-300 text-red-700" : undefined}
+                  >
+                    {(detail.is_original ?? true) ? "Original" : "CHINA"}
+                  </Badge>
+                  {detail.brand?.trim() && <Badge variant="outline">{detail.brand}</Badge>}
                 </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Created</p>
-                  <p>{new Date(detail.created_at).toLocaleString()}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Last Updated</p>
-                  <p>{new Date(detail.updated_at).toLocaleString()}</p>
+              </div>
+
+              <div className="space-y-3">
+                <h3 className="text-sm font-semibold text-foreground">Details</h3>
+                <div className="grid grid-cols-2 gap-4 rounded-lg border p-4 text-sm">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Brand</p>
+                    <p className="mt-1 font-medium">{detail.brand?.trim() ? detail.brand : "—"}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Location</p>
+                    <p className="mt-1 font-medium">{detail.location_details?.location ?? detail.location}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Requested By</p>
+                    <p className="mt-1 font-medium">{detail.created_by_details.full_name}</p>
+                    <p className="text-xs text-muted-foreground">@{detail.created_by_details.username}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Created</p>
+                    <p className="mt-1 font-medium">{new Date(detail.created_at).toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Last Updated</p>
+                    <p className="mt-1 font-medium">{new Date(detail.updated_at).toLocaleString()}</p>
+                  </div>
                 </div>
               </div>
 
@@ -1034,6 +1480,7 @@ export function NotificationsPage() {
                     <Button
                       className="flex-1 bg-green-600 hover:bg-green-700 text-white"
                       onClick={() => {
+                        setActionPurchaseId(selectedId)
                         setApproveOpen(true)
                       }}
                     >
@@ -1044,6 +1491,7 @@ export function NotificationsPage() {
                       className="flex-1"
                       variant="destructive"
                       onClick={() => {
+                        setActionPurchaseId(selectedId)
                         setRejectOpen(true)
                       }}
                     >
@@ -1063,23 +1511,32 @@ export function NotificationsPage() {
         </SheetContent>
       </Sheet>
 
-      <Dialog open={approveOpen} onOpenChange={setApproveOpen}>
+      <Dialog
+        open={approveOpen}
+        onOpenChange={(open) => {
+          setApproveOpen(open)
+          if (!open) {
+            setActionPurchaseId(null)
+            setApproveReason("")
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Approve Purchase Request</DialogTitle>
+            <DialogTitle>Confirm Purchase Approval</DialogTitle>
             <DialogDescription>
-              Are you sure you want to approve purchase request #{selectedId}?
+              You are about to approve purchase request #{actionPurchaseId}. This will move the request to the next approval stage or complete the approval flow.
               {selectedPending && (
                 <span className="block mt-1">
-                  <strong>{selectedPending.name}</strong> — {selectedPending.quantity} × {selectedPending.total_amount}
+                  <strong>{selectedPending.name}</strong> — {selectedPending.part_number} — Qty: {selectedPending.quantity}
                 </span>
               )}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
-            <label className="text-sm font-medium">Reason (optional)</label>
+            <label className="text-sm font-medium">Approval Note (optional)</label>
             <Input
-              placeholder="Add a note for your approval..."
+              placeholder="Add an approval note..."
               value={approveReason}
               onChange={(e) => setApproveReason(e.target.value)}
             />
@@ -1090,7 +1547,15 @@ export function NotificationsPage() {
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setApproveOpen(false)} disabled={actionLoading}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setApproveOpen(false)
+                setActionPurchaseId(null)
+                setApproveReason("")
+              }}
+              disabled={actionLoading}
+            >
               Cancel
             </Button>
             <Button
@@ -1098,18 +1563,27 @@ export function NotificationsPage() {
               onClick={handleApprove}
               disabled={actionLoading}
             >
-              {actionLoading ? "Approving..." : "Confirm Approval"}
+              {actionLoading ? "Approving..." : "Approve Request"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
+      <Dialog
+        open={rejectOpen}
+        onOpenChange={(open) => {
+          setRejectOpen(open)
+          if (!open) {
+            setActionPurchaseId(null)
+            setRejectReason("")
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Reject Purchase Request</DialogTitle>
             <DialogDescription>
-              Please provide a reason for rejecting purchase request #{selectedId}.
+              Please provide a reason for rejecting purchase request #{actionPurchaseId}.
               {selectedPending && (
                 <span className="block mt-1">
                   <strong>{selectedPending.name}</strong>
@@ -1131,7 +1605,15 @@ export function NotificationsPage() {
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setRejectOpen(false); setRejectReason("") }} disabled={actionLoading}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setRejectOpen(false)
+                setActionPurchaseId(null)
+                setRejectReason("")
+              }}
+              disabled={actionLoading}
+            >
               Cancel
             </Button>
             <Button

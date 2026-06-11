@@ -17,8 +17,8 @@ function locationLabel(locations: Location[], id: string) {
 }
 
 function statusBadge(balance: number, lowStockThreshold: number) {
-  if (balance === 0) return { label: "Out of stock", variant: "outline" as const }
-  if (balance <= lowStockThreshold) return { label: "Low", variant: "danger" as const }
+  void lowStockThreshold
+  if (balance === 0) return { label: "Low", variant: "danger" as const }
   return { label: "OK", variant: "success" as const }
 }
 
