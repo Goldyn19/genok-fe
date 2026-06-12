@@ -108,6 +108,100 @@ function canEditPurchase(item: ApiPurchaseListItem) {
   return item.status === "pending" && item.approval_progress === 0
 }
 
+type PaginationControlsProps = {
+  currentPage: number
+  totalPages: number
+  visibleCount: number
+  totalCount: number
+  onPageChange: (page: number) => void
+}
+
+function PaginationControls({
+  currentPage,
+  totalPages,
+  visibleCount,
+  totalCount,
+  onPageChange,
+}: PaginationControlsProps) {
+  const [pageInput, setPageInput] = useState(String(currentPage))
+
+  useEffect(() => {
+    setPageInput(String(currentPage))
+  }, [currentPage])
+
+  function jumpToPage() {
+    const parsedPage = Number.parseInt(pageInput, 10)
+    if (!Number.isFinite(parsedPage)) {
+      setPageInput(String(currentPage))
+      return
+    }
+
+    const nextPage = Math.min(totalPages, Math.max(1, parsedPage))
+    onPageChange(nextPage)
+  }
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="text-xs text-muted-foreground">
+        Showing <span className="font-medium text-foreground">{visibleCount}</span> of{" "}
+        <span className="font-medium text-foreground">{totalCount}</span>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => onPageChange(1)}
+          disabled={currentPage <= 1}
+        >
+          First
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+          disabled={currentPage <= 1}
+        >
+          Prev
+        </Button>
+        <div className="text-xs text-muted-foreground tabular-nums">
+          Page <span className="font-medium text-foreground">{currentPage}</span> of{" "}
+          <span className="font-medium text-foreground">{totalPages}</span>
+        </div>
+        <Input
+          type="number"
+          min={1}
+          max={totalPages}
+          value={pageInput}
+          onChange={(e) => setPageInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") jumpToPage()
+          }}
+          className="h-8 w-20"
+        />
+        <Button variant="outline" size="sm" onClick={jumpToPage}>
+          Go
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+          disabled={currentPage >= totalPages}
+        >
+          Next
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => onPageChange(totalPages)}
+          disabled={currentPage >= totalPages}
+        >
+          Last
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 function ApprovalStepRow({ step }: { step: ApiApprovalStep }) {
   const done = step.status === "confirmed"
   const rejected = step.status === "failed"
@@ -879,34 +973,13 @@ export function NotificationsPage() {
                   </TableBody>
                 </Table>
 
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-xs text-muted-foreground">
-                    Showing <span className="font-medium text-foreground">{pending.length}</span> of{" "}
-                    <span className="font-medium text-foreground">{pendingCount}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setPendingPage((p) => Math.max(1, p - 1))}
-                      disabled={pendingPage <= 1}
-                    >
-                      Prev
-                    </Button>
-                    <div className="text-xs text-muted-foreground tabular-nums">
-                      Page <span className="font-medium text-foreground">{pendingPage}</span> of{" "}
-                      <span className="font-medium text-foreground">{pendingTotalPages}</span>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setPendingPage((p) => Math.min(pendingTotalPages, p + 1))}
-                      disabled={pendingPage >= pendingTotalPages}
-                    >
-                      Next
-                    </Button>
-                  </div>
-                </div>
+                <PaginationControls
+                  currentPage={pendingPage}
+                  totalPages={pendingTotalPages}
+                  visibleCount={pending.length}
+                  totalCount={pendingCount}
+                  onPageChange={setPendingPage}
+                />
               </div>
             )}
           </CardContent>
@@ -1012,34 +1085,13 @@ export function NotificationsPage() {
                   </TableBody>
                 </Table>
 
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-xs text-muted-foreground">
-                    Showing <span className="font-medium text-foreground">{myRequests.length}</span> of{" "}
-                    <span className="font-medium text-foreground">{myRequestsCount}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setMyRequestsPage((p) => Math.max(1, p - 1))}
-                      disabled={myRequestsPage <= 1}
-                    >
-                      Prev
-                    </Button>
-                    <div className="text-xs text-muted-foreground tabular-nums">
-                      Page <span className="font-medium text-foreground">{myRequestsPage}</span> of{" "}
-                      <span className="font-medium text-foreground">{myRequestsTotalPages}</span>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setMyRequestsPage((p) => Math.min(myRequestsTotalPages, p + 1))}
-                      disabled={myRequestsPage >= myRequestsTotalPages}
-                    >
-                      Next
-                    </Button>
-                  </div>
-                </div>
+                <PaginationControls
+                  currentPage={myRequestsPage}
+                  totalPages={myRequestsTotalPages}
+                  visibleCount={myRequests.length}
+                  totalCount={myRequestsCount}
+                  onPageChange={setMyRequestsPage}
+                />
 
                 <div className="rounded-lg border p-4">
                   <div className="flex items-start justify-between gap-3">
