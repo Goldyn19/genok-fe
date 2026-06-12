@@ -891,12 +891,13 @@ export async function apiListMyPurchases(baseUrl: string, token: string, status?
 export async function apiListMyPurchasesPage(
   baseUrl: string,
   token: string,
-  opts: { page: number; page_size?: number; status?: string }
+  opts: { page: number; page_size?: number; status?: string; search?: string }
 ) {
   const qs = new URLSearchParams()
   qs.set("page", String(opts.page))
   if (opts.page_size != null) qs.set("page_size", String(opts.page_size))
   if (opts.status) qs.set("status", opts.status)
+  if (opts.search && opts.search.trim()) qs.set("search", opts.search.trim())
 
   const data = await requestJson<unknown>({
     baseUrl,

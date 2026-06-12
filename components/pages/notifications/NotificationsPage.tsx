@@ -309,6 +309,7 @@ export function NotificationsPage() {
         const data = await apiListMyPurchasesPage(apiBaseUrl, token as string, {
           page: pageNumber,
           page_size: PURCHASE_PAGE_SIZE,
+          search: requestFilter,
         })
         setMyRequests(data.results)
         setMyRequestsCount(data.count)
@@ -318,7 +319,7 @@ export function NotificationsPage() {
         setMyRequestsLoading(false)
       }
     },
-    [apiBaseUrl, canCallApi, token]
+    [apiBaseUrl, canCallApi, requestFilter, token]
   )
 
   useEffect(() => {
@@ -392,6 +393,7 @@ export function NotificationsPage() {
         const data = await apiListMyPurchasesPage(apiBaseUrl, token as string, {
           page: myRequestsPage,
           page_size: PURCHASE_PAGE_SIZE,
+          search: requestFilter,
         })
         if (cancelled) return
         setMyRequests(data.results)
@@ -408,7 +410,7 @@ export function NotificationsPage() {
     return () => {
       cancelled = true
     }
-  }, [activeTab, apiBaseUrl, canCallApi, myRequestsPage, token])
+  }, [activeTab, apiBaseUrl, canCallApi, myRequestsPage, requestFilter, token])
 
   useEffect(() => {
     if (pendingPage > pendingTotalPages) setPendingPage(pendingTotalPages)
@@ -684,13 +686,7 @@ export function NotificationsPage() {
     }
   }
 
-  const filteredMyRequests = myRequests.filter(
-    (p) =>
-      !requestFilter ||
-      p.name.toLowerCase().includes(requestFilter.toLowerCase()) ||
-      p.part_number.toLowerCase().includes(requestFilter.toLowerCase()) ||
-      p.status.toLowerCase().includes(requestFilter.toLowerCase())
-  )
+  const filteredMyRequests = myRequests
 
   const filteredSalesMy = salesMy.filter(
     (s) =>
