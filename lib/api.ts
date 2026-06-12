@@ -685,6 +685,40 @@ export type ApiPaginated<T> = {
   results: T[]
 }
 
+async function requestAllPaginatedRows<T>(opts: {
+  baseUrl: string
+  token: string
+  path: string
+  page_size?: number
+}) {
+  const rows: T[] = []
+  const pageSize = opts.page_size ?? 100
+
+  for (let page = 1; page <= 1000; page += 1) {
+    const separator = opts.path.includes("?") ? "&" : "?"
+    const data = await requestJson<unknown>({
+      baseUrl: opts.baseUrl,
+      method: "GET",
+      path: `${opts.path}${separator}page=${page}&page_size=${pageSize}`,
+      token: opts.token,
+    })
+
+    if (Array.isArray(data)) return data as T[]
+
+    if (typeof data === "object" && data != null && "results" in data) {
+      const paginated = data as ApiPaginated<T>
+      rows.push(...paginated.results)
+
+      if (!paginated.next || rows.length >= paginated.count) return rows
+      continue
+    }
+
+    return rows
+  }
+
+  return rows
+}
+
 export async function apiListStockPage(
   baseUrl: string,
   token: string,
@@ -842,15 +876,11 @@ export async function apiListPurchases(
   if (filters?.search) qs.set("search", filters.search)
   const suffix = qs.toString() ? `?${qs.toString()}` : ""
 
-  const data = await requestJson<unknown>({ baseUrl, method: "GET", path: `/purchases/purchases/${suffix}`, token })
-
-  if (Array.isArray(data)) return data as ApiPurchaseListItem[]
-  if (typeof data === "object" && data != null && "results" in data) {
-    const obj = data as Record<string, unknown>
-    const results = obj.results
-    if (Array.isArray(results)) return results as ApiPurchaseListItem[]
-  }
-  return [] as ApiPurchaseListItem[]
+  return requestAllPaginatedRows<ApiPurchaseListItem>({
+    baseUrl,
+    token,
+    path: `/purchases/purchases/${suffix}`,
+  })
 }
 
 export async function apiListMyPurchases(baseUrl: string, token: string, status?: string) {
@@ -922,15 +952,11 @@ export async function apiListSalesItems(baseUrl: string, token: string, filters?
   if (filters?.partNumber) qs.set("part_number", filters.partNumber)
   const suffix = qs.toString() ? `?${qs.toString()}` : ""
 
-  const data = await requestJson<unknown>({ baseUrl, method: "GET", path: `/purchases/sales-items/${suffix}`, token })
-
-  if (Array.isArray(data)) return data as ApiSalesItem[]
-  if (typeof data === "object" && data != null && "results" in data) {
-    const obj = data as Record<string, unknown>
-    const results = obj.results
-    if (Array.isArray(results)) return results as ApiSalesItem[]
-  }
-  return [] as ApiSalesItem[]
+  return requestAllPaginatedRows<ApiSalesItem>({
+    baseUrl,
+    token,
+    path: `/purchases/sales-items/${suffix}`,
+  })
 }
 
 export async function apiGetSalesItem(baseUrl: string, token: string, salesItemId: string) {
