@@ -339,6 +339,26 @@ export type ApiSalesRejectResponse = {
   reason: string
 }
 
+export type ApiMyActionItem = {
+  type: "purchase" | "sale"
+  approval_id: number
+  object_id: number | string
+  step: number
+  decision: "approved" | "rejected"
+  reason: string | null
+  acted_at: string | null
+  current_status: string
+  name: string
+  part_number: string
+  quantity: number
+  can_change_decision: boolean
+  blocked_reason: string | null
+}
+
+export type ApiRevokeActionResponse = {
+  ok: boolean
+}
+
 export type ApiCreditCustomer = {
   credit_id: string
   customer_name: string
@@ -912,6 +932,45 @@ export async function apiListMyPurchasesPage(
 
   const rows = Array.isArray(data) ? (data as ApiPurchaseListItem[]) : ([] as ApiPurchaseListItem[])
   return { count: rows.length, next: null, previous: null, results: rows } as ApiPaginated<ApiPurchaseListItem>
+}
+
+export async function apiListMyActionsPage(
+  baseUrl: string,
+  token: string,
+  opts: { page: number; page_size?: number; search?: string }
+) {
+  const qs = new URLSearchParams()
+  qs.set("page", String(opts.page))
+  if (opts.page_size != null) qs.set("page_size", String(opts.page_size))
+  if (opts.search && opts.search.trim()) qs.set("search", opts.search.trim())
+
+  const data = await requestJson<unknown>({
+    baseUrl,
+    method: "GET",
+    path: `/purchases/purchases/my-actions/?${qs.toString()}`,
+    token,
+  })
+
+  if (typeof data === "object" && data != null && "results" in data) {
+    return data as ApiPaginated<ApiMyActionItem>
+  }
+
+  const rows = Array.isArray(data) ? (data as ApiMyActionItem[]) : ([] as ApiMyActionItem[])
+  return { count: rows.length, next: null, previous: null, results: rows } as ApiPaginated<ApiMyActionItem>
+}
+
+export async function apiRevokeMyAction(
+  baseUrl: string,
+  token: string,
+  body: { type: "purchase" | "sale"; approval_id: number }
+) {
+  return requestJson<ApiRevokeActionResponse>({
+    baseUrl,
+    method: "POST",
+    path: "/purchases/purchases/revoke-action/",
+    token,
+    body,
+  })
 }
 
 export async function apiGetPurchaseDetail(baseUrl: string, token: string, purchaseId: number) {

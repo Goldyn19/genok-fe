@@ -10,6 +10,7 @@ import {
   apiGetPurchaseDetail,
   apiListLocations,
   apiListMyPurchasesPage,
+  apiListMyActionsPage,
   apiListPendingApprovalsPage,
   apiGetSalesApprovalStatus,
   apiGetSalesItem,
@@ -18,12 +19,14 @@ import {
   apiRejectPurchase,
   apiApproveSalesItem,
   apiRejectSalesItem,
+  apiRevokeMyAction,
   apiUpdatePurchase,
   getApiBaseUrl,
   type ApiApprovalStep,
   type ApiLocation,
   type ApiPurchaseDetail,
   type ApiPurchaseListItem,
+  type ApiMyActionItem,
   type ApiSalesApprovalChainItem,
   type ApiSalesApprovalStatusResponse,
   type ApiSalesItem,
@@ -58,7 +61,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 
-type TabKey = "purchase-pending" | "purchase-my" | "sales-pending" | "sales-my"
+type TabKey = "purchase-pending" | "purchase-my" | "sales-pending" | "sales-my" | "my-actions"
 type PurchaseEditDraft = {
   name: string
   part_number: string
@@ -324,6 +327,7 @@ export function NotificationsPage() {
   const [pendingFilter, setPendingFilter] = useState("")
   const [requestFilter, setRequestFilter] = useState("")
   const [salesFilter, setSalesFilter] = useState("")
+  const [myActionsFilter, setMyActionsFilter] = useState("")
 
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [actionPurchaseId, setActionPurchaseId] = useState<number | null>(null)
@@ -352,6 +356,16 @@ export function NotificationsPage() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [approveReason, setApproveReason] = useState("")
   const [rejectReason, setRejectReason] = useState("")
+  const [selectedMyAction, setSelectedMyAction] = useState<ApiMyActionItem | null>(null)
+  const [revokeOpen, setRevokeOpen] = useState(false)
+  const [revokeLoading, setRevokeLoading] = useState(false)
+  const [revokeError, setRevokeError] = useState<string | null>(null)
+
+  const [myActions, setMyActions] = useState<ApiMyActionItem[]>([])
+  const [myActionsCount, setMyActionsCount] = useState(0)
+  const [myActionsPage, setMyActionsPage] = useState(1)
+  const [myActionsLoading, setMyActionsLoading] = useState(true)
+  const [myActionsError, setMyActionsError] = useState<string | null>(null)
   const [editingPurchaseId, setEditingPurchaseId] = useState<number | null>(null)
   const [editDraft, setEditDraft] = useState<PurchaseEditDraft | null>(null)
   const [editLocations, setEditLocations] = useState<ApiLocation[]>([])
@@ -371,6 +385,7 @@ export function NotificationsPage() {
 
   const pendingTotalPages = Math.max(1, Math.ceil(pendingCount / PURCHASE_PAGE_SIZE))
   const myRequestsTotalPages = Math.max(1, Math.ceil(myRequestsCount / PURCHASE_PAGE_SIZE))
+  const myActionsTotalPages = Math.max(1, Math.ceil(myActionsCount / PURCHASE_PAGE_SIZE))
 
   const loadPendingPage = useCallback(
     async (pageNumber: number) => {
@@ -414,6 +429,28 @@ export function NotificationsPage() {
       }
     },
     [apiBaseUrl, canCallApi, requestFilter, token]
+  )
+
+  const loadMyActionsPage = useCallback(
+    async (pageNumber: number) => {
+      if (!canCallApi) return
+      try {
+        setMyActionsLoading(true)
+        setMyActionsError(null)
+        const data = await apiListMyActionsPage(apiBaseUrl, token as string, {
+          page: pageNumber,
+          page_size: PURCHASE_PAGE_SIZE,
+          search: myActionsFilter,
+        })
+        setMyActions(data.results)
+        setMyActionsCount(data.count)
+      } catch (e) {
+        setMyActionsError(getErrorMessage(e, "Failed to load your actions"))
+      } finally {
+        setMyActionsLoading(false)
+      }
+    },
+    [apiBaseUrl, canCallApi, myActionsFilter, token]
   )
 
   useEffect(() => {
@@ -507,12 +544,47 @@ export function NotificationsPage() {
   }, [activeTab, apiBaseUrl, canCallApi, myRequestsPage, requestFilter, token])
 
   useEffect(() => {
+    if (!canCallApi) return
+    if (activeTab !== "my-actions") return
+    let cancelled = false
+
+    async function run() {
+      try {
+        setMyActionsLoading(true)
+        setMyActionsError(null)
+        const data = await apiListMyActionsPage(apiBaseUrl, token as string, {
+          page: myActionsPage,
+          page_size: PURCHASE_PAGE_SIZE,
+          search: myActionsFilter,
+        })
+        if (cancelled) return
+        setMyActions(data.results)
+        setMyActionsCount(data.count)
+      } catch (e) {
+        if (cancelled) return
+        setMyActionsError(getErrorMessage(e, "Failed to load your actions"))
+      } finally {
+        if (!cancelled) setMyActionsLoading(false)
+      }
+    }
+
+    run()
+    return () => {
+      cancelled = true
+    }
+  }, [activeTab, apiBaseUrl, canCallApi, myActionsFilter, myActionsPage, token])
+
+  useEffect(() => {
     if (pendingPage > pendingTotalPages) setPendingPage(pendingTotalPages)
   }, [pendingPage, pendingTotalPages])
 
   useEffect(() => {
     if (myRequestsPage > myRequestsTotalPages) setMyRequestsPage(myRequestsTotalPages)
   }, [myRequestsPage, myRequestsTotalPages])
+
+  useEffect(() => {
+    if (myActionsPage > myActionsTotalPages) setMyActionsPage(myActionsTotalPages)
+  }, [myActionsPage, myActionsTotalPages])
 
   useEffect(() => {
     if (!canCallApi) return
@@ -718,6 +790,29 @@ export function NotificationsPage() {
     }
   }
 
+  const handleRevokeMyAction = async () => {
+    if (!selectedMyAction || !canCallApi) return
+    setRevokeLoading(true)
+    setRevokeError(null)
+    try {
+      const tokenStr = token as string
+      await apiRevokeMyAction(apiBaseUrl, tokenStr, {
+        type: selectedMyAction.type,
+        approval_id: selectedMyAction.approval_id,
+      })
+      setRevokeOpen(false)
+      setSelectedMyAction(null)
+      await loadMyActionsPage(myActionsPage)
+      await loadPendingPage(pendingPage)
+      const salesPendingUpdated = await apiListPendingSalesApprovals(apiBaseUrl, tokenStr)
+      setSalesPending(salesPendingUpdated)
+    } catch (e) {
+      setRevokeError(getErrorMessage(e, "Failed to change decision"))
+    } finally {
+      setRevokeLoading(false)
+    }
+  }
+
   const handleSavePurchaseEdit = async () => {
     if (!editingPurchaseId || !editDraft || !canCallApi) return
 
@@ -863,6 +958,16 @@ export function NotificationsPage() {
           }`}
         >
           My Sales
+        </button>
+        <button
+          onClick={() => setActiveTab("my-actions")}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === "my-actions"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          My Actions
         </button>
       </div>
 
@@ -1238,6 +1343,125 @@ export function NotificationsPage() {
         </Card>
       )}
 
+      {activeTab === "my-actions" && (
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle className="text-base">My Actions</CardTitle>
+              <Input
+                placeholder="Search actions..."
+                value={myActionsFilter}
+                onChange={(e) => {
+                  setMyActionsFilter(e.target.value)
+                  setMyActionsPage(1)
+                }}
+                className="max-w-xs"
+              />
+            </div>
+          </CardHeader>
+          <CardContent>
+            {myActionsLoading && (
+              <p className="text-sm text-muted-foreground py-8 text-center">Loading...</p>
+            )}
+            {myActionsError && (
+              <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                {myActionsError}
+              </div>
+            )}
+            {!myActionsLoading && !myActionsError && myActions.length === 0 && (
+              <p className="text-sm text-muted-foreground py-8 text-center">No actions yet.</p>
+            )}
+            {!myActionsLoading && !myActionsError && myActions.length > 0 && (
+              <div className="space-y-4">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Type</TableHead>
+                      <TableHead>ID</TableHead>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Part Number</TableHead>
+                      <TableHead>Qty</TableHead>
+                      <TableHead>Decision</TableHead>
+                      <TableHead>Step</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Date</TableHead>
+                      <TableHead></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {myActions.map((a) => (
+                      <TableRow key={`${a.type}-${a.approval_id}`}>
+                        <TableCell className="capitalize">{a.type}</TableCell>
+                        <TableCell className="font-mono text-xs">{String(a.object_id)}</TableCell>
+                        <TableCell>{a.name}</TableCell>
+                        <TableCell className="font-mono text-xs">{a.part_number}</TableCell>
+                        <TableCell>{a.quantity}</TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="outline"
+                            className={
+                              a.decision === "approved"
+                                ? "bg-green-100 text-green-800 border-green-200"
+                                : "bg-red-100 text-red-800 border-red-200"
+                            }
+                          >
+                            {a.decision}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>{a.step}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className={statusColor(a.current_status)}>
+                            {a.current_status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {a.acted_at ? new Date(a.acted_at).toLocaleDateString() : "—"}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1">
+                            {a.type === "purchase" && (
+                              <Button size="sm" variant="ghost" onClick={() => loadDetail(a.object_id as number)}>
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {a.type === "sale" && (
+                              <Button size="sm" variant="ghost" onClick={() => loadSalesDetail(a.object_id as string)}>
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={!a.can_change_decision}
+                              title={a.can_change_decision ? "" : a.blocked_reason ?? "Not allowed"}
+                              onClick={() => {
+                                setSelectedMyAction(a)
+                                setRevokeError(null)
+                                setRevokeOpen(true)
+                              }}
+                            >
+                              Change decision
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+
+                <PaginationControls
+                  currentPage={myActionsPage}
+                  totalPages={myActionsTotalPages}
+                  visibleCount={myActions.length}
+                  totalCount={myActionsCount}
+                  onPageChange={setMyActionsPage}
+                />
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {activeTab === "sales-pending" && (
         <Card>
           <CardHeader className="pb-3">
@@ -1558,6 +1782,54 @@ export function NotificationsPage() {
           )}
         </SheetContent>
       </Sheet>
+
+      <Dialog
+        open={revokeOpen}
+        onOpenChange={(open) => {
+          setRevokeOpen(open)
+          if (!open) {
+            setSelectedMyAction(null)
+            setRevokeError(null)
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {selectedMyAction?.decision === "approved" ? "Revoke Approval" : "Revoke Rejection"}
+            </DialogTitle>
+            <DialogDescription>
+              This will revert your decision only if the workflow has not moved past your step. Final approvals cannot be revoked.
+              {selectedMyAction && (
+                <span className="block mt-1">
+                  <strong>{selectedMyAction.name}</strong> — {selectedMyAction.part_number} — Qty: {selectedMyAction.quantity}
+                </span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          {revokeError && (
+            <div className="rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-700">
+              {revokeError}
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setRevokeOpen(false)
+                setSelectedMyAction(null)
+                setRevokeError(null)
+              }}
+              disabled={revokeLoading}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleRevokeMyAction} disabled={revokeLoading || !selectedMyAction}>
+              {revokeLoading ? "Changing..." : "Confirm"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={approveOpen}
