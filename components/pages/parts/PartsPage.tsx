@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useSession } from "next-auth/react"
 
-import { apiListPurchases, apiListSalesItems, getApiBaseUrl, type ApiPurchaseListItem, type ApiSalesItem } from "@/lib/api"
+import { apiListActivityPage, getApiBaseUrl, type ApiActivityItem } from "@/lib/api"
 import { getErrorMessage } from "@/lib/rbacUtils"
 import { formatCurrency } from "@/lib/metrics"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -13,32 +13,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge"
 
 const PAGE_SIZE = 10
-
-type ActivityRow =
-  | {
-      kind: "purchase"
-      created_at: string
-      id: number
-      part_name: string
-      part_number: string
-      quantity: number
-      status: string
-      location: string
-      total: number | null
-      created_by_name: string
-    }
-  | {
-      kind: "sale"
-      created_at: string
-      id: string
-      part_name: string
-      part_number: string
-      quantity: number
-      status: string
-      location: string
-      total: number | null
-      created_by_name: string
-    }
 
 function statusBadgeVariant(status: string) {
   const s = status.toLowerCase()
@@ -66,8 +40,8 @@ export function PartsPage() {
   const [to, setTo] = useState(initialTo)
   const [page, setPage] = useState(initialPage)
 
-  const [purchases, setPurchases] = useState<ApiPurchaseListItem[]>([])
-  const [sales, setSales] = useState<ApiSalesItem[]>([])
+  const [activityRows, setActivityRows] = useState<ApiActivityItem[]>([])
+  const [activityCount, setActivityCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -88,92 +62,32 @@ export function PartsPage() {
         setLoading(true)
         setError(null)
 
-        const [p, s] = await Promise.all([
-          apiListPurchases(apiBaseUrl, token as string, {
-            fromDate: from.trim() || undefined,
-            toDate: to.trim() || undefined,
-            search: q.trim() || undefined,
-          }),
-          apiListSalesItems(apiBaseUrl, token as string),
-        ])
+        const data = await apiListActivityPage(apiBaseUrl, token as string, {
+          page,
+          page_size: PAGE_SIZE,
+          q: q.trim() || undefined,
+          fromDate: from.trim() || undefined,
+          toDate: to.trim() || undefined,
+        })
 
-        setPurchases(p)
-        setSales(s)
+        setActivityRows(data.results)
+        setActivityCount(data.count)
       } catch (e) {
-        setPurchases([])
-        setSales([])
+        setActivityRows([])
+        setActivityCount(0)
         setError(getErrorMessage(e, "Failed to load purchases and sales"))
       } finally {
         setLoading(false)
       }
     }
-  }, [apiBaseUrl, canCallApi, from, q, to, token])
+  }, [apiBaseUrl, canCallApi, from, page, q, to, token])
 
   useEffect(() => {
     void reload()
   }, [reload])
 
-  const combined = useMemo(() => {
-    const qLower = q.trim().toLowerCase()
-    const fromDate = from.trim()
-    const toDate = to.trim()
-
-    const matches = (partName: string, partNumber: string) => {
-      if (!qLower) return true
-      return [partName, partNumber].some((v) => v.toLowerCase().includes(qLower))
-    }
-
-    const inRange = (createdAt: string) => {
-      const d = createdAt.slice(0, 10)
-      if (fromDate && d < fromDate) return false
-      if (toDate && d > toDate) return false
-      return true
-    }
-
-    const purchaseRows: ActivityRow[] = purchases
-      .filter((p) => matches(p.name, p.part_number) && inRange(p.created_at))
-      .map((p) => ({
-        kind: "purchase",
-        created_at: p.created_at,
-        id: p.id,
-        part_name: p.name,
-        part_number: p.part_number,
-        quantity: p.quantity,
-        status: p.status,
-        location: p.location_details?.location ?? p.location,
-        total: p.total_amount ? Number(p.total_amount) : null,
-        created_by_name: p.created_by_name,
-      }))
-
-    const salesRows: ActivityRow[] = sales
-      .filter((s) => matches(s.part_name, s.part_number) && inRange(s.created_at))
-      .map((s) => ({
-        kind: "sale",
-        created_at: s.created_at,
-        id: s.id,
-        part_name: s.part_name,
-        part_number: s.part_number,
-        quantity: s.quantity,
-        status: s.status,
-        location: "—",
-        total: typeof s.total_price === "number" ? s.total_price : null,
-        created_by_name: "—",
-      }))
-
-    return [...purchaseRows, ...salesRows].sort((a, b) => {
-      const ta = Date.parse(a.created_at)
-      const tb = Date.parse(b.created_at)
-      if (!Number.isFinite(ta) || !Number.isFinite(tb)) return String(b.created_at).localeCompare(String(a.created_at))
-      return tb - ta
-    })
-  }, [from, purchases, q, sales, to])
-
-  const totalPages = Math.max(1, Math.ceil(combined.length / PAGE_SIZE))
+  const totalPages = Math.max(1, Math.ceil(activityCount / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
-  const paginated = useMemo(() => {
-    const start = (currentPage - 1) * PAGE_SIZE
-    return combined.slice(start, start + PAGE_SIZE)
-  }, [combined, currentPage])
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages)
@@ -258,7 +172,7 @@ export function PartsPage() {
                 </TableRow>
               )}
               {!loading &&
-                paginated.map((r) => (
+                activityRows.map((r) => (
                   <TableRow key={`${r.kind}-${String(r.id)}`}>
                     <TableCell className="text-sm">{new Date(r.created_at).toLocaleString()}</TableCell>
                     <TableCell className="text-sm">{r.kind === "purchase" ? "Purchase" : "Sale"}</TableCell>
@@ -275,7 +189,7 @@ export function PartsPage() {
                     </TableCell>
                   </TableRow>
                 ))}
-              {!loading && combined.length === 0 && (
+              {!loading && activityRows.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={8} className="py-12 text-center text-sm text-muted-foreground">
                     No purchases or sales found.
@@ -285,11 +199,11 @@ export function PartsPage() {
             </TableBody>
           </Table>
 
-          {!loading && combined.length > 0 && (
+          {!loading && activityCount > 0 && (
             <div className="flex items-center justify-between gap-3">
               <div className="text-xs text-muted-foreground">
-                Showing <span className="font-medium text-foreground">{paginated.length}</span> of{" "}
-                <span className="font-medium text-foreground">{combined.length}</span>
+                Showing <span className="font-medium text-foreground">{activityRows.length}</span> of{" "}
+                <span className="font-medium text-foreground">{activityCount}</span>
               </div>
               <div className="flex items-center gap-2">
                 <button

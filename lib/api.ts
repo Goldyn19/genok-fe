@@ -299,6 +299,19 @@ export type ApiSalesItem = {
   created_at: string
 }
 
+export type ApiActivityItem = {
+  kind: "purchase" | "sale"
+  id: string
+  created_at: string
+  part_name: string
+  part_number: string
+  quantity: number
+  status: string
+  location: string
+  total: number | null
+  created_by_name: string
+}
+
 export type ApiSalesApprovalChainItem = {
   step: number
   required_permission?: string
@@ -953,6 +966,26 @@ export async function apiListPurchases(
     baseUrl,
     token,
     path: `/purchases/purchases/${suffix}`,
+  })
+}
+
+export async function apiListActivityPage(
+  baseUrl: string,
+  token: string,
+  opts: { page: number; page_size?: number; q?: string; fromDate?: string; toDate?: string }
+) {
+  const qs = new URLSearchParams()
+  qs.set("page", String(opts.page))
+  if (opts.page_size != null) qs.set("page_size", String(opts.page_size))
+  if (opts.q && opts.q.trim()) qs.set("q", opts.q.trim())
+  if (opts.fromDate) qs.set("from_date", opts.fromDate)
+  if (opts.toDate) qs.set("to_date", opts.toDate)
+
+  return requestJson<ApiPaginated<ApiActivityItem>>({
+    baseUrl,
+    method: "GET",
+    path: `/purchases/activity/?${qs.toString()}`,
+    token,
   })
 }
 
