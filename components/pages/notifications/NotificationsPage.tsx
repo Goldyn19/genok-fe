@@ -319,11 +319,13 @@ export function NotificationsPage() {
 
   const [salesPending, setSalesPending] = useState<ApiSalesItem[]>([])
   const [salesMy, setSalesMy] = useState<ApiSalesItem[]>([])
-  const [salesPendingLoading, setSalesPendingLoading] = useState(true)
+  const [salesPendingLoading, setSalesPendingLoading] = useState(false)
   const [salesMyLoading, setSalesMyLoading] = useState(true)
   const [salesPendingError, setSalesPendingError] = useState<string | null>(null)
   const [salesMyError, setSalesMyError] = useState<string | null>(null)
+  const [salesPendingLoaded, setSalesPendingLoaded] = useState(false)
 
+  const [pendingFilterInput, setPendingFilterInput] = useState("")
   const [pendingFilter, setPendingFilter] = useState("")
   const [requestFilter, setRequestFilter] = useState("")
   const [salesFilter, setSalesFilter] = useState("")
@@ -392,6 +394,11 @@ export function NotificationsPage() {
   const myRequestsTotalPages = Math.max(1, Math.ceil(myRequestsCount / PURCHASE_PAGE_SIZE))
   const myActionsTotalPages = Math.max(1, Math.ceil(myActionsCount / PURCHASE_PAGE_SIZE))
 
+  const applyPendingFilter = useCallback(() => {
+    setPendingPage(1)
+    setPendingFilter(pendingFilterInput.trim())
+  }, [pendingFilterInput])
+
   const loadPendingPage = useCallback(
     async (pageNumber: number) => {
       if (!canCallApi) return
@@ -458,6 +465,21 @@ export function NotificationsPage() {
     [apiBaseUrl, canCallApi, myActionsFilter, token]
   )
 
+  const loadSalesPending = useCallback(async () => {
+    if (!canCallApi) return
+    try {
+      setSalesPendingLoading(true)
+      setSalesPendingError(null)
+      const data = await apiListPendingSalesApprovals(apiBaseUrl, token as string)
+      setSalesPending(data)
+      setSalesPendingLoaded(true)
+    } catch (e) {
+      setSalesPendingError(getErrorMessage(e, "Failed to load pending sales approvals"))
+    } finally {
+      setSalesPendingLoading(false)
+    }
+  }, [apiBaseUrl, canCallApi, token])
+
   useEffect(() => {
     if (!canCallApi) return
     let cancelled = false
@@ -494,28 +516,10 @@ export function NotificationsPage() {
 
   useEffect(() => {
     if (!canCallApi) return
-    let cancelled = false
-
-    async function run() {
-      try {
-        setSalesPendingLoading(true)
-        setSalesPendingError(null)
-        const data = await apiListPendingSalesApprovals(apiBaseUrl, token as string)
-        if (cancelled) return
-        setSalesPending(data)
-      } catch (e) {
-        if (cancelled) return
-        setSalesPendingError(getErrorMessage(e, "Failed to load pending sales approvals"))
-      } finally {
-        if (!cancelled) setSalesPendingLoading(false)
-      }
-    }
-
-    run()
-    return () => {
-      cancelled = true
-    }
-  }, [apiBaseUrl, canCallApi, token])
+    if (activeTab !== "sales-pending") return
+    if (salesPendingLoaded) return
+    void loadSalesPending()
+  }, [activeTab, canCallApi, loadSalesPending, salesPendingLoaded])
 
   useEffect(() => {
     if (!canCallApi) return
@@ -814,6 +818,7 @@ export function NotificationsPage() {
       setSalesApproveOpen(false)
       setSalesApproveReason("")
       setSalesPending((prev) => prev.filter((x) => x.id !== selectedSalesId))
+      setSalesPendingLoaded(true)
       await loadSalesDetail(selectedSalesId)
       const myUpdated = await apiListMySalesItems(apiBaseUrl, tokenStr)
       setSalesMy(myUpdated)
@@ -838,6 +843,7 @@ export function NotificationsPage() {
       setSalesRejectOpen(false)
       setSalesRejectReason("")
       setSalesPending((prev) => prev.filter((x) => x.id !== selectedSalesId))
+      setSalesPendingLoaded(true)
       await loadSalesDetail(selectedSalesId)
       const myUpdated = await apiListMySalesItems(apiBaseUrl, tokenStr)
       setSalesMy(myUpdated)
@@ -888,8 +894,11 @@ export function NotificationsPage() {
       setSelectedMyAction(null)
       await loadMyActionsPage(myActionsPage)
       await loadPendingPage(pendingPage)
-      const salesPendingUpdated = await apiListPendingSalesApprovals(apiBaseUrl, tokenStr)
-      setSalesPending(salesPendingUpdated)
+      if (selectedMyAction.type === "sale" || salesPendingLoaded) {
+        const salesPendingUpdated = await apiListPendingSalesApprovals(apiBaseUrl, tokenStr)
+        setSalesPending(salesPendingUpdated)
+        setSalesPendingLoaded(true)
+      }
     } catch (e) {
       setRevokeError(getErrorMessage(e, "Failed to change decision"))
     } finally {
@@ -1064,10 +1073,12 @@ export function NotificationsPage() {
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
               <Input
                 placeholder="Search approvals..."
-                value={pendingFilter}
-                onChange={(e) => {
-                  setPendingFilter(e.target.value)
-                  setPendingPage(1)
+                value={pendingFilterInput}
+                onChange={(e) => setPendingFilterInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    applyPendingFilter()
+                  }
                 }}
                 className="w-full sm:max-w-xs"
               />
