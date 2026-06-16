@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 
 import type { Location, Stock } from "@/lib/types"
+import type { ApiLocationImportResult } from "@/lib/api"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -28,7 +29,7 @@ function toDraft(stock: Stock | null, locations: Location[]): StockDraft {
     part_name: stock?.part_name ?? "",
     part_number: stock?.part_number ?? "",
     location: stock?.location ?? defaultLocation,
-    balance: stock ? "" : "",
+    balance: stock ? String(stock.balance) : "",
     parent: stock?.parent ?? "",
     price: stock?.price != null ? String(stock.price) : "",
     is_caterpillar: String(stock?.is_caterpillar ?? true),
@@ -199,6 +200,11 @@ export function CreateOrUpdateStockDialog({
     }
   }, [open, onSearchParentStock, parentQuery])
 
+  useEffect(() => {
+    if (!open) return
+    setDraft(toDraft(stock, locations))
+  }, [stock, locations, open])
+
   const errors = useMemo(() => (submitted ? validateDraft(draft, mode) : {}), [draft, submitted, mode])
 
   return (
@@ -221,7 +227,9 @@ export function CreateOrUpdateStockDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{stock ? "Update Stock" : "Create Stock"}</DialogTitle>
-          <DialogDescription>{stock ? "Update stock details." : "Create a stock entry request."}</DialogDescription>
+          <DialogDescription>
+            {stock ? "Update only the fields you want to change. Existing values are pre-filled below." : "Create a stock entry request."}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-4">
@@ -331,6 +339,14 @@ export function CreateOrUpdateStockDialog({
               </div>
             )}
 
+            {stock && (
+              <div className="grid gap-2">
+                <div className="text-xs font-medium text-muted-foreground">Current Balance</div>
+                <Input value={draft.balance} readOnly disabled />
+                <div className="text-xs text-muted-foreground">Balance is shown for reference during edit.</div>
+              </div>
+            )}
+
             <div className="grid gap-2">
               <div className="text-xs font-medium text-muted-foreground">Price (optional)</div>
               <Input value={draft.price} onChange={(e) => setDraft((p) => ({ ...p, price: e.target.value }))} />
@@ -416,6 +432,7 @@ export function CreateLocationDialog({
   onCreate,
   onUpdate,
   onDelete,
+  onImportCsv,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -423,6 +440,7 @@ export function CreateLocationDialog({
   onCreate: (location: Location) => Promise<void>
   onUpdate: (location: Location) => Promise<void>
   onDelete: (id: string) => Promise<void>
+  onImportCsv: (file: File, opts: { dry_run: boolean }) => Promise<ApiLocationImportResult>
 }) {
   const [name, setName] = useState("")
   const [parent, setParent] = useState<string>("")
@@ -431,6 +449,11 @@ export function CreateLocationDialog({
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState("")
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [importDryRun, setImportDryRun] = useState<"true" | "false">("false")
+  const [importing, setImporting] = useState(false)
+  const [importError, setImportError] = useState("")
+  const [importResult, setImportResult] = useState<ApiLocationImportResult | null>(null)
 
   const options = useMemo(
     () => {
@@ -455,49 +478,119 @@ export function CreateLocationDialog({
           setSaving(false)
           setSaveError("")
           setDeleteOpen(false)
+          setImportFile(null)
+          setImportDryRun("false")
+          setImporting(false)
+          setImportError("")
+          setImportResult(null)
         }
       }}
     >
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="max-w-3xl h-[80vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>Locations</DialogTitle>
           <DialogDescription>Create, update, or delete a location.</DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-6 md:grid-cols-2">
-          <div className="space-y-4">
-            <div className="grid gap-2">
-              <div className="text-xs font-medium text-muted-foreground">Selected location (optional)</div>
-              <Select
-                value={selectedId}
-                onChange={(v) => {
-                  setSelectedId(v)
-                  setSubmitted(false)
-                  setSaveError("")
-                  const loc = locations.find((l) => l.id === v) || null
-                  setName(loc?.location ?? "")
-                  setParent(loc?.parent ?? "")
-                }}
-                options={[{ value: "", label: "Create new" }, ...locations.map((l) => ({ value: l.id, label: l.location }))]}
-              />
-            </div>
-            <div className="grid gap-2">
-              <div className="text-xs font-medium text-muted-foreground">Location Name</div>
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g., Warehouse C" />
-              {nameError && <div className="text-xs text-destructive">{nameError}</div>}
-            </div>
-            <div className="grid gap-2">
-              <div className="text-xs font-medium text-muted-foreground">Parent Location</div>
-              <Select value={parent} onChange={setParent} options={options} />
-              <div className={cn("text-xs text-muted-foreground")}>Select a parent to create hierarchy.</div>
-            </div>
-          </div>
+        <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+          <div className="space-y-6">
+            <div className="grid gap-6 md:grid-cols-2">
+              <div className="space-y-4">
+                <div className="grid gap-2">
+                  <div className="text-xs font-medium text-muted-foreground">Selected location (optional)</div>
+                  <Select
+                    value={selectedId}
+                    onChange={(v) => {
+                      setSelectedId(v)
+                      setSubmitted(false)
+                      setSaveError("")
+                      const loc = locations.find((l) => l.id === v) || null
+                      setName(loc?.location ?? "")
+                      setParent(loc?.parent ?? "")
+                    }}
+                    options={[{ value: "", label: "Create new" }, ...locations.map((l) => ({ value: l.id, label: l.location }))]}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <div className="text-xs font-medium text-muted-foreground">Location Name</div>
+                  <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g., Warehouse C" />
+                  {nameError && <div className="text-xs text-destructive">{nameError}</div>}
+                </div>
+                <div className="grid gap-2">
+                  <div className="text-xs font-medium text-muted-foreground">Parent Location</div>
+                  <Select value={parent} onChange={setParent} options={options} />
+                  <div className={cn("text-xs text-muted-foreground")}>Select a parent to create hierarchy.</div>
+                </div>
+              </div>
 
-          <div>
-            <div className="mb-2 text-xs font-medium text-muted-foreground">Existing Locations</div>
-            <LocationTree locations={locations} />
+              <div>
+                <div className="mb-2 text-xs font-medium text-muted-foreground">Existing Locations</div>
+                <LocationTree locations={locations} />
+              </div>
+            </div>
+
+            <div className="rounded-md border bg-card p-3">
+              <div className="text-sm font-medium text-foreground">Import locations (CSV)</div>
+              <div className="mt-1 text-xs text-muted-foreground">Superuser-only. CSV headers: location,parent</div>
+              <div className="mt-3 grid gap-3 md:grid-cols-3">
+                <div className="grid gap-2 md:col-span-2">
+                  <div className="text-xs font-medium text-muted-foreground">CSV file</div>
+                  <Input
+                    type="file"
+                    accept=".csv,text/csv"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0] ?? null
+                      setImportFile(f)
+                      setImportError("")
+                      setImportResult(null)
+                    }}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <div className="text-xs font-medium text-muted-foreground">Dry run</div>
+                  <Select
+                    value={importDryRun}
+                    onChange={(v) => setImportDryRun(v === "true" ? "true" : "false")}
+                    options={[
+                      { value: "false", label: "No (write data)" },
+                      { value: "true", label: "Yes (validate only)" },
+                    ]}
+                  />
+                </div>
+              </div>
+              <div className="mt-3 flex items-center gap-2">
+                <Button
+                  type="button"
+                  disabled={importing || saving || !importFile}
+                  onClick={() => {
+                    if (!importFile) return
+                    setImporting(true)
+                    setImportError("")
+                    setImportResult(null)
+                    onImportCsv(importFile, { dry_run: importDryRun === "true" })
+                      .then((r) => setImportResult(r))
+                      .catch((e: unknown) => {
+                        const msg = e instanceof Error ? e.message : "Import failed"
+                        setImportError(msg)
+                      })
+                      .finally(() => setImporting(false))
+                  }}
+                >
+                  {importing ? "Importing" : "Import CSV"}
+                </Button>
+                {importResult && (
+                  <div className="text-xs text-muted-foreground">
+                    {importResult.dry_run ? "Dry run:" : "Imported:"} {importResult.created} created, {importResult.existed} existed
+                    {importResult.errors.length ? `, ${importResult.errors.length} errors` : ""}
+                  </div>
+                )}
+              </div>
+              {importError && <div className="mt-2 text-sm text-destructive">{importError}</div>}
+            </div>
           </div>
         </div>
+
+        {saveError && <div className="mt-2 text-sm text-destructive">{saveError}</div>}
 
         <DialogFooter>
           <Button variant="secondary" type="button" onClick={() => onOpenChange(false)}>
@@ -535,7 +628,6 @@ export function CreateLocationDialog({
             {saving ? "Saving" : selectedId ? "Update" : "Create"}
           </Button>
         </DialogFooter>
-        {saveError && <div className="text-sm text-destructive">{saveError}</div>}
 
         <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
           <DialogContent className="max-w-lg">

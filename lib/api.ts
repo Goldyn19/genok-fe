@@ -398,6 +398,20 @@ export type ApiLocation = {
   children?: ApiLocation[]
 }
 
+export type ApiLocationImportError = {
+  row: number
+  error: string
+  data: Record<string, unknown>
+}
+
+export type ApiLocationImportResult = {
+  dry_run: boolean
+  total_rows: number
+  created: number
+  existed: number
+  errors: ApiLocationImportError[]
+}
+
 export type ApiPurchaseUpdatePayload = {
   name?: string
   part_number?: string
@@ -431,6 +445,32 @@ async function requestJson<T>(opts: {
       ...(opts.token ? { Authorization: `Bearer ${opts.token}` } : {}),
     },
     body: opts.body == null ? undefined : JSON.stringify(opts.body),
+  })
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "")
+    const message = text || res.statusText || "Request failed"
+    throw { status: res.status, message } satisfies ApiError
+  }
+
+  return (await res.json()) as T
+}
+
+async function requestFormData<T>(opts: {
+  baseUrl: string
+  path: string
+  method: "POST"
+  token?: string
+  body: FormData
+}): Promise<T> {
+  const url = joinUrl(opts.baseUrl, opts.path)
+  const res = await fetch(url, {
+    method: opts.method,
+    headers: {
+      Accept: "application/json",
+      ...(opts.token ? { Authorization: `Bearer ${opts.token}` } : {}),
+    },
+    body: opts.body,
   })
 
   if (!res.ok) {
@@ -671,6 +711,19 @@ export async function apiUpdateLocation(baseUrl: string, token: string, id: stri
 
 export async function apiDeleteLocation(baseUrl: string, token: string, id: string) {
   return requestJson<unknown>({ baseUrl, method: "DELETE", path: `/product/location/${encodeURIComponent(id)}/`, token })
+}
+
+export async function apiImportLocationsCsv(baseUrl: string, token: string, file: File, opts?: { dry_run?: boolean }) {
+  const body = new FormData()
+  body.set("file", file)
+  if (opts?.dry_run != null) body.set("dry_run", String(opts.dry_run))
+  return requestFormData<ApiLocationImportResult>({
+    baseUrl,
+    method: "POST",
+    path: "/product/location/import-csv/",
+    token,
+    body,
+  })
 }
 
 export async function apiCreateStock(baseUrl: string, token: string | undefined, payload: Omit<Stock, "id">) {

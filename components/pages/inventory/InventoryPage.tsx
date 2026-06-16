@@ -11,6 +11,7 @@ import {
   apiCreateLocation,
   apiCreatePurchase,
   apiDeleteLocation,
+  apiImportLocationsCsv,
   apiListLocations,
   apiListStockPage,
   apiSearchStock,
@@ -333,33 +334,34 @@ export function InventoryPage() {
           setNotice(null)
 
           if (selected) {
-            await apiUpdateStock(apiBaseUrl, tokenStr, selected.id, {
-              part_name: next.part_name,
-              part_number: next.part_number,
-              location: next.location,
-              parent: next.parent ?? null,
-              price: next.price ?? null,
-              brand: next.brand ?? null,
-              is_caterpillar: next.is_caterpillar ?? true,
-              is_original: next.is_original ?? true,
-            })
+            const patch: Partial<Stock> = {}
+
+            if (next.part_name !== selected.part_name) patch.part_name = next.part_name
+            if (next.part_number !== selected.part_number) patch.part_number = next.part_number
+            if (next.location !== selected.location) patch.location = next.location
+            if ((next.parent ?? null) !== (selected.parent ?? null)) patch.parent = next.parent ?? null
+            if ((next.price ?? null) !== (selected.price ?? null)) patch.price = next.price ?? null
+            if ((next.brand ?? null) !== (selected.brand ?? null)) patch.brand = next.brand ?? null
+            if ((next.is_caterpillar ?? true) !== (selected.is_caterpillar ?? true)) patch.is_caterpillar = next.is_caterpillar ?? true
+            if ((next.is_original ?? true) !== (selected.is_original ?? true)) patch.is_original = next.is_original ?? true
+
+            if (Object.keys(patch).length === 0) {
+              setNotice("No stock changes were made.")
+              return
+            }
+
+            await apiUpdateStock(apiBaseUrl, tokenStr, selected.id, patch)
             setStock((prev) =>
               prev.map((p) =>
                 p.id === selected.id
                   ? {
                       ...p,
-                      part_name: next.part_name,
-                      part_number: next.part_number,
-                      location: next.location,
-                      parent: next.parent ?? null,
-                      price: next.price ?? null,
-                      brand: next.brand ?? null,
-                      is_caterpillar: next.is_caterpillar ?? true,
-                      is_original: next.is_original ?? true,
+                      ...patch,
                     }
                   : p
               )
             )
+            setSelected((prev) => (prev && prev.id === selected.id ? { ...prev, ...patch } : prev))
             setNotice("Stock details updated.")
             return
           }
@@ -402,6 +404,14 @@ export function InventoryPage() {
           if (!apiBaseUrl || !tokenStr) throw new Error("Missing API base URL or auth token")
           await apiDeleteLocation(apiBaseUrl, tokenStr, id)
           setLocations((prev) => prev.filter((p) => p.id !== id))
+        }}
+        onImportCsv={async (file, opts) => {
+          const tokenStr = token
+          if (!apiBaseUrl || !tokenStr) throw new Error("Missing API base URL or auth token")
+          const result = await apiImportLocationsCsv(apiBaseUrl, tokenStr, file, { dry_run: opts.dry_run })
+          const fresh = await apiListLocations(apiBaseUrl, tokenStr)
+          setLocations(fresh.map(mapApiLocationRow))
+          return result
         }}
       />
     </div>
