@@ -356,6 +356,11 @@ export function NotificationsPage() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [approveReason, setApproveReason] = useState("")
   const [rejectReason, setRejectReason] = useState("")
+  const [approvalLocations, setApprovalLocations] = useState<ApiLocation[]>([])
+  const [approvalLocation, setApprovalLocation] = useState("")
+  const [approvalLocationQuery, setApprovalLocationQuery] = useState("")
+  const [approvalLocationLoading, setApprovalLocationLoading] = useState(false)
+  const [approvalLocationError, setApprovalLocationError] = useState<string | null>(null)
   const [selectedMyAction, setSelectedMyAction] = useState<ApiMyActionItem | null>(null)
   const [revokeOpen, setRevokeOpen] = useState(false)
   const [revokeLoading, setRevokeLoading] = useState(false)
@@ -587,6 +592,73 @@ export function NotificationsPage() {
   }, [myActionsPage, myActionsTotalPages])
 
   useEffect(() => {
+    if (!canCallApi || !approveOpen) return
+    const currentPending = pending.find((p) => p.id === actionPurchaseId)
+    if (!currentPending || currentPending.current_step !== 2) {
+      setApprovalLocations([])
+      setApprovalLocation("")
+      setApprovalLocationQuery("")
+      setApprovalLocationLoading(false)
+      setApprovalLocationError(null)
+      return
+    }
+
+    let cancelled = false
+    setApprovalLocation(currentPending.location)
+    setApprovalLocationQuery("")
+    setApprovalLocationError(null)
+
+    async function run() {
+      try {
+        setApprovalLocationLoading(true)
+        const locations = await apiListLocations(apiBaseUrl, token as string)
+        if (cancelled) return
+        setApprovalLocations(locations)
+      } catch (e) {
+        if (cancelled) return
+        setApprovalLocationError(getErrorMessage(e, "Failed to load locations"))
+      } finally {
+        setApprovalLocationLoading(false)
+      }
+    }
+
+    run()
+    return () => {
+      cancelled = true
+    }
+  }, [actionPurchaseId, apiBaseUrl, approveOpen, canCallApi, pending, token])
+
+  useEffect(() => {
+    if (!canCallApi || !approveOpen) return
+    const currentPending = pending.find((p) => p.id === actionPurchaseId)
+    if (!currentPending || currentPending.current_step !== 2) return
+
+    let cancelled = false
+    const t = setTimeout(() => {
+      setApprovalLocationLoading(true)
+      setApprovalLocationError(null)
+      apiListLocations(apiBaseUrl, token as string, approvalLocationQuery)
+        .then((locations) => {
+          if (cancelled) return
+          setApprovalLocations(locations)
+        })
+        .catch((e: unknown) => {
+          if (cancelled) return
+          setApprovalLocationError(getErrorMessage(e, "Failed to load locations"))
+        })
+        .finally(() => {
+          if (cancelled) return
+          setApprovalLocationLoading(false)
+        })
+    }, 250)
+
+    return () => {
+      cancelled = true
+      clearTimeout(t)
+    }
+  }, [actionPurchaseId, apiBaseUrl, approvalLocationQuery, approveOpen, canCallApi, pending, token])
+
+  useEffect(() => {
     if (!canCallApi) return
     if (activeTab !== "sales-my") return
     let cancelled = false
@@ -704,10 +776,22 @@ export function NotificationsPage() {
     setActionError(null)
     try {
       const tokenStr = token as string
-      await apiApprovePurchase(apiBaseUrl, tokenStr, actionPurchaseId, approveReason || undefined)
+      const currentPending = pending.find((p) => p.id === actionPurchaseId)
+      const approvePayload: { reason?: string; location?: string } = {}
+
+      if (approveReason.trim()) {
+        approvePayload.reason = approveReason.trim()
+      }
+      if (currentPending?.current_step === 2 && approvalLocation && approvalLocation !== currentPending.location) {
+        approvePayload.location = approvalLocation
+      }
+
+      await apiApprovePurchase(apiBaseUrl, tokenStr, actionPurchaseId, approvePayload)
       setApproveOpen(false)
       setActionPurchaseId(null)
       setApproveReason("")
+      setApprovalLocation("")
+      setApprovalLocationError(null)
       await loadPendingPage(pendingPage)
       if (selectedId === actionPurchaseId) {
         await loadDetail(actionPurchaseId)
@@ -1838,6 +1922,11 @@ export function NotificationsPage() {
           if (!open) {
             setActionPurchaseId(null)
             setApproveReason("")
+            setApprovalLocation("")
+            setApprovalLocationQuery("")
+            setApprovalLocations([])
+            setApprovalLocationLoading(false)
+            setApprovalLocationError(null)
           }
         }}
       >
@@ -1861,6 +1950,55 @@ export function NotificationsPage() {
               onChange={(e) => setApproveReason(e.target.value)}
             />
           </div>
+          {selectedPending?.current_step === 2 && (
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Receiving Location (temporary)</label>
+              <Input
+                placeholder="Search locations..."
+                value={approvalLocationQuery}
+                onChange={(e) => setApprovalLocationQuery(e.target.value)}
+              />
+              <Select
+                value={approvalLocation}
+                onChange={setApprovalLocation}
+                disabled={approvalLocationLoading && approvalLocations.length === 0}
+                options={[
+                  {
+                    value: approvalLocation || selectedPending.location,
+                    label:
+                      (approvalLocation === selectedPending.location || !approvalLocation) &&
+                      selectedPending.location_details?.location
+                        ? `Current: ${selectedPending.location_details.location}`
+                        : approvalLocations.find((l) => String(l.id) === approvalLocation)?.location
+                          ? `Selected: ${approvalLocations.find((l) => String(l.id) === approvalLocation)?.location}`
+                          : "Selected location",
+                  },
+                  ...approvalLocations
+                    .filter((location) => {
+                      const id = String(location.id)
+                      if (id === selectedPending.location) return false
+                      if (approvalLocation && id === approvalLocation) return false
+                      return true
+                    })
+                    .map((location) => ({
+                      value: String(location.id),
+                      label: location.location,
+                    })),
+                ]}
+              />
+              <p className="text-xs text-muted-foreground">
+                Temporary step-2 override. This updates the purchase location before later confirmation.
+              </p>
+              {approvalLocationLoading && (
+                <p className="text-xs text-muted-foreground">Loading locations…</p>
+              )}
+              {approvalLocationError && (
+                <div className="rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-700">
+                  {approvalLocationError}
+                </div>
+              )}
+            </div>
+          )}
           {actionError && (
             <div className="rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-700">
               {actionError}
@@ -1873,6 +2011,11 @@ export function NotificationsPage() {
                 setApproveOpen(false)
                 setActionPurchaseId(null)
                 setApproveReason("")
+                setApprovalLocation("")
+                setApprovalLocationQuery("")
+                setApprovalLocations([])
+                setApprovalLocationLoading(false)
+                setApprovalLocationError(null)
               }}
               disabled={actionLoading}
             >

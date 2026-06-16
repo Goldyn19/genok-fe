@@ -1030,13 +1030,21 @@ export async function apiGetPurchaseDetail(baseUrl: string, token: string, purch
   return requestJson<ApiPurchaseDetail>({ baseUrl, method: "GET", path: `/purchases/purchases/${encodeURIComponent(String(purchaseId))}/`, token })
 }
 
-export async function apiApprovePurchase(baseUrl: string, token: string, purchaseId: number, reason?: string) {
+export async function apiApprovePurchase(
+  baseUrl: string,
+  token: string,
+  purchaseId: number,
+  opts?: { reason?: string; location?: string }
+) {
+  const body: Record<string, string> = {}
+  if (opts?.reason) body.reason = opts.reason
+  if (opts?.location) body.location = opts.location
   return requestJson<ApiApproveResponse>({
     baseUrl,
     method: "POST",
     path: `/purchases/purchases/${encodeURIComponent(String(purchaseId))}/approve/`,
     token,
-    body: reason ? { reason } : {},
+    body,
   })
 }
 
