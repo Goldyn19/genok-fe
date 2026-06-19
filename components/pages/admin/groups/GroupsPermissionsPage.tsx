@@ -13,6 +13,7 @@ import {
   apiDeactivateRoleAssignment,
   apiGetRole,
   apiListLocations,
+  apiListRoleAssignments,
   apiListRoles,
   apiSearchUsers,
   apiRemovePermissionsFromGroup,
@@ -21,6 +22,7 @@ import {
   type RbacGroup,
   type RbacPermission,
   type RbacRole,
+  type RbacRoleAssignment,
   type RbacRoleDetail,
   type RbacUser,
 } from "@/lib/api"
@@ -247,6 +249,8 @@ function RoleAssignmentsCard(props: { apiBaseUrl: string; token: string }) {
   const [roleDetails, setRoleDetails] = useState<RbacRoleDetail | null>(null)
   const [roleDetailsLoading, setRoleDetailsLoading] = useState(false)
   const [roleDetailsError, setRoleDetailsError] = useState<string | null>(null)
+  const [inactiveAssignments, setInactiveAssignments] = useState<Array<RbacRoleAssignment>>([])
+  const [inactiveAssignmentsLoading, setInactiveAssignmentsLoading] = useState(false)
 
   const [locations, setLocations] = useState<ApiLocation[]>([])
   const [locationsError, setLocationsError] = useState<string | null>(null)
@@ -293,13 +297,20 @@ function RoleAssignmentsCard(props: { apiBaseUrl: string; token: string }) {
       try {
         setRoleDetailsLoading(true)
         setRoleDetailsError(null)
-        const d = await apiGetRole(props.apiBaseUrl, props.token, roleId)
+        setInactiveAssignmentsLoading(true)
+        const [d, inactive] = await Promise.all([
+          apiGetRole(props.apiBaseUrl, props.token, roleId),
+          apiListRoleAssignments(props.apiBaseUrl, props.token, { roleId, isActive: false }),
+        ])
         setRoleDetails(d)
+        setInactiveAssignments(inactive)
       } catch (e) {
         setRoleDetailsError(getErrorMessage(e, "Failed to load role details"))
         setRoleDetails(null)
+        setInactiveAssignments([])
       } finally {
         setRoleDetailsLoading(false)
+        setInactiveAssignmentsLoading(false)
       }
     },
     [props.apiBaseUrl, props.token]
@@ -469,6 +480,69 @@ function RoleAssignmentsCard(props: { apiBaseUrl: string; token: string }) {
                               }}
                             >
                               Deactivate
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+
+            <div className="rounded-md border p-3 lg:col-span-3">
+              <div className="text-sm font-medium text-foreground">Inactive Assignments</div>
+              <div className="mt-3 overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>User</TableHead>
+                      <TableHead>Location</TableHead>
+                      <TableHead>Previously Assigned</TableHead>
+                      <TableHead className="text-right">Action</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {inactiveAssignmentsLoading ? (
+                      <TableRow>
+                        <TableCell colSpan={4} className="text-sm text-muted-foreground">
+                          Loading...
+                        </TableCell>
+                      </TableRow>
+                    ) : inactiveAssignments.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={4} className="text-sm text-muted-foreground">
+                          No inactive assignments.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      inactiveAssignments.map((a) => (
+                        <TableRow key={a.id}>
+                          <TableCell className="text-sm">
+                            <div className="font-medium text-foreground">{a.user_email}</div>
+                            <div className="text-muted-foreground">{a.assigned_by_name ?? "Previously assigned"}</div>
+                          </TableCell>
+                          <TableCell className="text-sm">{a.location_name ?? "—"}</TableCell>
+                          <TableCell className="text-sm">{new Date(a.assigned_at).toLocaleString()}</TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              variant="outline"
+                              onClick={async () => {
+                                try {
+                                  setActionError(null)
+                                  await apiCreateRoleAssignment(props.apiBaseUrl, props.token, {
+                                    user: a.user,
+                                    role: a.role,
+                                    location: a.location,
+                                    reason: a.reason || undefined,
+                                  })
+                                  if (selectedRoleId != null) await reloadRoleDetails(selectedRoleId)
+                                } catch (e) {
+                                  setActionError(getErrorMessage(e, "Failed to reactivate assignment"))
+                                }
+                              }}
+                            >
+                              Reactivate
                             </Button>
                           </TableCell>
                         </TableRow>
