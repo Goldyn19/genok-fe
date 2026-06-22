@@ -4,13 +4,14 @@ import { useEffect, useMemo, useState } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useSession } from "next-auth/react"
 
-import { apiListActivityPage, getApiBaseUrl, type ApiActivityItem } from "@/lib/api"
+import { apiGetPurchaseDetail, apiGetSalesItem, apiListActivityPage, getApiBaseUrl, type ApiActivityItem, type ApiPurchaseDetail, type ApiSalesItem } from "@/lib/api"
 import { getErrorMessage } from "@/lib/rbacUtils"
 import { formatCurrency } from "@/lib/metrics"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 
 const PAGE_SIZE = 10
 
@@ -19,6 +20,35 @@ function statusBadgeVariant(status: string) {
   if (s === "approved" || s === "confirmed") return "success"
   if (s === "rejected" || s === "failed") return "danger"
   return "warning"
+}
+
+function ApprovalRow({
+  sequence,
+  status,
+  requiredPermission,
+  approvedBy,
+  approvedAt,
+  reason,
+}: {
+  sequence: number
+  status: string
+  requiredPermission: string | null
+  approvedBy: string | null
+  approvedAt: string | null
+  reason: string | null
+}) {
+  return (
+    <div className="space-y-1 rounded-md border p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-sm font-medium text-foreground">Step {sequence}</div>
+        <Badge variant={statusBadgeVariant(status)}>{status}</Badge>
+      </div>
+      {requiredPermission && <div className="text-xs text-muted-foreground">{requiredPermission}</div>}
+      {approvedBy && <div className="text-xs text-muted-foreground">{approvedBy}</div>}
+      {approvedAt && <div className="text-xs text-muted-foreground">{new Date(approvedAt).toLocaleString()}</div>}
+      {reason && <div className="text-xs italic text-foreground/80">&quot;{reason}&quot;</div>}
+    </div>
+  )
 }
 
 export function PartsPage() {
@@ -44,6 +74,12 @@ export function PartsPage() {
   const [activityCount, setActivityCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  const [selected, setSelected] = useState<ApiActivityItem | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [detailError, setDetailError] = useState<string | null>(null)
+  const [purchaseDetail, setPurchaseDetail] = useState<ApiPurchaseDetail | null>(null)
+  const [salesDetail, setSalesDetail] = useState<ApiSalesItem | null>(null)
 
   useEffect(() => {
     if (sessionStatus === "loading") return
@@ -85,6 +121,45 @@ export function PartsPage() {
   useEffect(() => {
     void reload()
   }, [reload])
+
+  useEffect(() => {
+    const tokenStr = token
+    if (!apiBaseUrl || !tokenStr) return
+    if (!selected) {
+      setPurchaseDetail(null)
+      setSalesDetail(null)
+      setDetailError(null)
+      return
+    }
+
+    let cancelled = false
+    ;(async () => {
+      try {
+        setDetailLoading(true)
+        setDetailError(null)
+        setPurchaseDetail(null)
+        setSalesDetail(null)
+
+        if (selected.kind === "purchase") {
+          const purchaseId = Number.parseInt(selected.id, 10)
+          if (!Number.isFinite(purchaseId)) throw new Error("Invalid purchase id")
+          const data = await apiGetPurchaseDetail(apiBaseUrl, tokenStr, purchaseId)
+          if (!cancelled) setPurchaseDetail(data)
+        } else {
+          const data = await apiGetSalesItem(apiBaseUrl, tokenStr, selected.id)
+          if (!cancelled) setSalesDetail(data)
+        }
+      } catch (e) {
+        if (!cancelled) setDetailError(getErrorMessage(e, "Failed to load details"))
+      } finally {
+        if (!cancelled) setDetailLoading(false)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [apiBaseUrl, selected, token])
 
   const totalPages = Math.max(1, Math.ceil(activityCount / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
@@ -173,7 +248,12 @@ export function PartsPage() {
               )}
               {!loading &&
                 activityRows.map((r) => (
-                  <TableRow key={`${r.kind}-${String(r.id)}`}>
+                  <TableRow
+                    key={`${r.kind}-${String(r.id)}`}
+                    className="cursor-pointer"
+                    onClick={() => setSelected(r)}
+                    aria-selected={selected?.kind === r.kind && selected?.id === r.id}
+                  >
                     <TableCell className="text-sm">{new Date(r.created_at).toLocaleString()}</TableCell>
                     <TableCell className="text-sm">{r.kind === "purchase" ? "Purchase" : "Sale"}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">{String(r.id)}</TableCell>
@@ -239,7 +319,95 @@ export function PartsPage() {
           )}
         </CardContent>
       </Card>
+
+      <Sheet open={!!selected} onOpenChange={(open) => (!open ? setSelected(null) : null)}>
+        <SheetContent side="right" className="w-full sm:max-w-xl">
+          <SheetHeader>
+            <SheetTitle>
+              {selected ? (selected.kind === "purchase" ? `Purchase #${selected.id}` : `Sale #${selected.id}`) : "Details"}
+            </SheetTitle>
+          </SheetHeader>
+
+          <div className="mt-4 space-y-4">
+            {detailError && <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{detailError}</div>}
+            {detailLoading && <div className="text-sm text-muted-foreground">Loading details…</div>}
+
+            {selected && !detailLoading && !detailError && (
+              <>
+                <div className="grid gap-3 rounded-md border p-4 text-sm sm:grid-cols-2">
+                  <div>
+                    <div className="text-xs text-muted-foreground">Part</div>
+                    <div className="font-medium text-foreground">{selected.part_name}</div>
+                    <div className="text-muted-foreground">{selected.part_number}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">Status</div>
+                    <Badge variant={statusBadgeVariant(selected.status)}>{selected.status}</Badge>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">Location</div>
+                    <div className="font-medium text-foreground">{selected.location}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">Requested By</div>
+                    <div className="font-medium text-foreground">{selected.created_by_name}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">Quantity</div>
+                    <div className="font-medium text-foreground tabular-nums">{selected.quantity}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">Total</div>
+                    <div className="font-medium text-foreground tabular-nums">{formatCurrency(selected.total)}</div>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <div className="text-xs text-muted-foreground">Date</div>
+                    <div className="font-medium text-foreground">{new Date(selected.created_at).toLocaleString()}</div>
+                  </div>
+                </div>
+
+                {purchaseDetail && (
+                  <div className="space-y-2">
+                    <div className="text-sm font-medium text-foreground">Approval Chain</div>
+                    <div className="space-y-2">
+                      {purchaseDetail.approvals.map((a) => (
+                        <ApprovalRow
+                          key={a.id}
+                          sequence={a.sequence}
+                          status={a.status}
+                          requiredPermission={a.required_permission}
+                          approvedBy={a.approved_by_details?.full_name || a.approved_by_details?.email || null}
+                          approvedAt={a.approved_at}
+                          reason={a.reason}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {salesDetail && (
+                  <div className="space-y-2">
+                    <div className="text-sm font-medium text-foreground">Approval Chain</div>
+                    <div className="space-y-2">
+                      {salesDetail.approvals.map((a) => (
+                        <ApprovalRow
+                          key={a.id}
+                          sequence={a.sequence}
+                          status={a.status}
+                          requiredPermission={a.required_permission}
+                          approvedBy={a.approved_by_details?.full_name || a.approved_by_details?.email || null}
+                          approvedAt={a.approved_at}
+                          reason={a.reason}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }
-

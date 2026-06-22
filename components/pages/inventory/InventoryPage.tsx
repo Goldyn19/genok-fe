@@ -76,6 +76,7 @@ export function InventoryPage() {
   const [notice, setNotice] = useState<string | null>(null)
 
   const [q, setQ] = useState(initialQ)
+  const [qInput, setQInput] = useState(initialQ)
   const [locationFilter, setLocationFilter] = useState<string>("")
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir } | null>({ key: "part_number", dir: "asc" })
   const [page, setPage] = useState(1)
@@ -87,6 +88,20 @@ export function InventoryPage() {
 
   const apiBaseUrl = getApiBaseUrl()
   const token = session?.accessToken
+
+  useEffect(() => {
+    const nextQ = searchParams.get("q") ?? ""
+    setQ(nextQ)
+    setQInput(nextQ)
+    setPage(1)
+  }, [searchParams])
+
+  function applySearch(nextRaw: string) {
+    const next = nextRaw.trim()
+    setQ(next)
+    setPage(1)
+    router.replace(next ? `/inventory?q=${encodeURIComponent(next)}` : "/inventory")
+  }
 
   useEffect(() => {
     const tokenStr = token
@@ -205,16 +220,19 @@ export function InventoryPage() {
           ) : (
             <>
               <div className="grid gap-3 md:grid-cols-[1fr_240px]">
-                <Input
-                  value={q}
-                  onChange={(e) => {
-                    const next = e.target.value
-                    setQ(next)
-                    setPage(1)
-                    router.replace(`/inventory?q=${encodeURIComponent(next)}`)
-                  }}
-                  placeholder="Search by part name/number and location"
-                />
+                <div className="flex gap-2">
+                  <Input
+                    value={qInput}
+                    onChange={(e) => setQInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") applySearch(qInput)
+                    }}
+                    placeholder="Search by part name/number and location"
+                  />
+                  <Button variant="outline" type="button" onClick={() => applySearch(qInput)}>
+                    Search
+                  </Button>
+                </div>
                 <Select
                   value={locationFilter}
                   onChange={(v) => {
