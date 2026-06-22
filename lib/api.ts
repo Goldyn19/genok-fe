@@ -948,6 +948,48 @@ export async function apiListPendingApprovalsPage(
   return { count: rows.length, next: null, previous: null, results: rows } as ApiPaginated<ApiPurchaseListItem>
 }
 
+export async function apiListAdminFinalApprovalsPage(
+  baseUrl: string,
+  token: string,
+  opts: { page: number; page_size?: number; search?: string }
+) {
+  const qs = new URLSearchParams()
+  qs.set("page", String(opts.page))
+  if (opts.page_size != null) qs.set("page_size", String(opts.page_size))
+  if (opts.search && opts.search.trim()) qs.set("search", opts.search.trim())
+
+  const data = await requestJson<unknown>({
+    baseUrl,
+    method: "GET",
+    path: `/purchases/purchases/admin-final-approvals/?${qs.toString()}`,
+    token,
+  })
+
+  if (typeof data === "object" && data != null && "results" in data) {
+    return data as ApiPaginated<ApiPurchaseListItem>
+  }
+
+  const rows = Array.isArray(data) ? (data as ApiPurchaseListItem[]) : ([] as ApiPurchaseListItem[])
+  return { count: rows.length, next: null, previous: null, results: rows } as ApiPaginated<ApiPurchaseListItem>
+}
+
+export type ApiAdminFinalBulkApproveFailure = { id: number; error: string }
+export type ApiAdminFinalBulkApproveResult = { approved: number[]; failed: ApiAdminFinalBulkApproveFailure[] }
+
+export async function apiAdminFinalApprovalsApproveBulk(
+  baseUrl: string,
+  token: string,
+  payload: { purchase_ids: number[]; reason?: string }
+) {
+  return requestJson<ApiAdminFinalBulkApproveResult>({
+    baseUrl,
+    method: "POST",
+    path: "/purchases/purchases/admin-final-approvals/approve-bulk/",
+    token,
+    body: payload,
+  })
+}
+
 export async function apiListPurchases(
   baseUrl: string,
   token: string,
