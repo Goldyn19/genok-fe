@@ -25,6 +25,16 @@ export type InviteValidateResponse = {
   expires_at?: string
 }
 
+export type PasswordResetCreateResponse = {
+  token: string
+  expires_at: string
+  reset_path: string
+}
+
+export type PasswordResetConsumeResponse = {
+  message: string
+}
+
 export type MyRolesResponse = {
   roles: Array<{
     id: number
@@ -505,6 +515,19 @@ export async function apiLogin(baseUrl: string, payload: { email: string; passwo
 
 export async function apiCreateSignupInvite(baseUrl: string, token: string, payload: { email: string }) {
   return requestJson<InviteCreateResponse>({ baseUrl, method: "POST", path: "/auth/invites/", token, body: payload })
+}
+
+export async function apiCreatePasswordResetLink(baseUrl: string, token: string, payload: { email: string }) {
+  return requestJson<PasswordResetCreateResponse>({ baseUrl, method: "POST", path: "/auth/password-resets/", token, body: payload })
+}
+
+export async function apiResetPasswordWithToken(baseUrl: string, payload: { token: string; new_password: string }) {
+  return requestJson<PasswordResetConsumeResponse>({
+    baseUrl,
+    method: "POST",
+    path: "/auth/password-resets/reset/",
+    body: payload,
+  })
 }
 
 export async function apiValidateSignupInvite(baseUrl: string, inviteToken: string) {
