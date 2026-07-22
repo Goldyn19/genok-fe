@@ -8,7 +8,8 @@ export type Stock = {
   id: string
   part_name: string
   part_number: string
-  location: string
+  top_level_location: string
+  locations: string[]
   balance: number
   parent?: string | null
   price?: number | null

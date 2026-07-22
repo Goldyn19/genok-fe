@@ -43,7 +43,7 @@ export function StockDetailSheet({
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-lg border bg-card p-4">
                 <div className="text-xs text-muted-foreground">Location</div>
-                <div className="text-sm font-medium text-foreground">{locationLabel(locations, stock.location)}</div>
+                <div className="text-sm font-medium text-foreground">{locationLabel(locations, stock.top_level_location)}</div>
               </div>
               <div className="rounded-lg border bg-card p-4">
                 <div className="text-xs text-muted-foreground">Balance</div>

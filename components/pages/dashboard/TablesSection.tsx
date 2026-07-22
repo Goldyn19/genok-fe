@@ -30,7 +30,7 @@ export function TablesSection({
         .map((r) => ({
           id: r.id,
           partNumber: r.part_number,
-          location: resolveLocationName(r.location),
+          location: resolveLocationName(r.top_level_location),
           balance: r.balance,
         })),
     []

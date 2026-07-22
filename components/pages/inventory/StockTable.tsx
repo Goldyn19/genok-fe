@@ -97,7 +97,7 @@ export function StockTable({
                 )}
               </TableCell>
               <TableCell className="text-muted-foreground">{r.part_number}</TableCell>
-              <TableCell className="text-muted-foreground">{locationLabel(locations, r.location)}</TableCell>
+              <TableCell className="text-muted-foreground">{locationLabel(locations, r.top_level_location)}</TableCell>
               <TableCell className="text-right tabular-nums">{r.balance}</TableCell>
               <TableCell className="text-right tabular-nums">{formatCurrency(r.price)}</TableCell>
               <TableCell>

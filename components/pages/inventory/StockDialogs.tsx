@@ -14,7 +14,8 @@ import { cn } from "@/lib/utils"
 type StockDraft = {
   part_name: string
   part_number: string
-  location: string
+  top_level_location: string
+  locations: string[]
   balance: string
   parent: string
   price: string
@@ -24,11 +25,11 @@ type StockDraft = {
 }
 
 function toDraft(stock: Stock | null, locations: Location[]): StockDraft {
-  const defaultLocation = locations[0]?.id ?? ""
   return {
     part_name: stock?.part_name ?? "",
     part_number: stock?.part_number ?? "",
-    location: stock?.location ?? defaultLocation,
+    top_level_location: stock?.top_level_location ?? "",
+    locations: stock?.locations ?? [],
     balance: stock ? String(stock.balance) : "",
     parent: stock?.parent ?? "",
     price: stock?.price != null ? String(stock.price) : "",
@@ -38,11 +39,12 @@ function toDraft(stock: Stock | null, locations: Location[]): StockDraft {
   }
 }
 
-function validateDraft(d: StockDraft, mode: "create" | "edit") {
+function validateDraft(d: StockDraft, mode: "create" | "edit", mismatchError: string | null) {
   const errors: Partial<Record<keyof StockDraft, string>> = {}
   if (!d.part_name.trim()) errors.part_name = "Required"
   if (!d.part_number.trim()) errors.part_number = "Required"
-  if (!d.location) errors.location = "Required"
+  if (!d.top_level_location) errors.top_level_location = "Required"
+  if (mismatchError) errors.top_level_location = mismatchError
   if (mode === "create") {
     const balance = Number(d.balance)
     if (!Number.isFinite(balance) || balance <= 0) errors.balance = "Must be a positive number"
@@ -87,20 +89,66 @@ export function CreateOrUpdateStockDialog({
 
   const mode: "create" | "edit" = stock ? "edit" : "create"
 
-  const locationOptions = useMemo(
-    () => {
-      const source = locationMatches ?? locations
-      const term = locationQuery.trim().toLowerCase()
-      const filtered = source.filter((l) => !term || l.location.toLowerCase().includes(term))
-      const base = [{ value: "", label: "Select location" }, ...filtered.map((l) => ({ value: l.id, label: l.location }))]
-      if (draft.location && !base.some((o) => o.value === draft.location)) {
-        const selected = (locationMatches ?? locations).find((l) => l.id === draft.location) ?? locations.find((l) => l.id === draft.location)
-        if (selected) base.push({ value: selected.id, label: selected.location })
+  const computedTopLevel = useMemo(() => {
+    if (draft.locations.length === 0) return null
+    const first = locations.find((l) => l.id === draft.locations[0])
+    if (!first) return null
+    let root = first
+    while (root.parent) {
+      const parentLoc = locations.find((l) => l.id === root.parent)
+      if (!parentLoc) break
+      root = parentLoc
+    }
+    return root.id
+  }, [draft.locations, locations])
+
+  const computedTopLevelName = useMemo(() => {
+    if (!computedTopLevel) return "—"
+    return locations.find((l) => l.id === computedTopLevel)?.location ?? computedTopLevel
+  }, [computedTopLevel, locations])
+
+  useEffect(() => {
+    if (!open) return
+    const existing = stock?.top_level_location ?? computedTopLevel ?? ""
+    setDraft((prev) => ({ ...prev, top_level_location: existing }))
+  }, [open, computedTopLevel, stock?.top_level_location])
+
+  useEffect(() => {
+    if (!open) return
+    if (locations.length > 0) return
+    if (!onSearchLocations) return
+    let cancelled = false
+    setLocationSearching(true)
+    onSearchLocations("").then((rows) => {
+      if (cancelled) return
+      setLocationMatches(rows)
+      setLocationSearching(false)
+    }).catch(() => {
+      if (cancelled) return
+      setLocationSearching(false)
+    })
+    return () => { cancelled = true }
+  }, [open, locations.length, onSearchLocations])
+
+  const locationMismatchError = useMemo(() => {
+    if (draft.locations.length < 2) return null
+    const roots = draft.locations.map((locId) => {
+      const loc = locations.find((l) => l.id === locId)
+      if (!loc) return null
+      let root = loc
+      while (root.parent) {
+        const parentLoc = locations.find((l) => l.id === root.parent)
+        if (!parentLoc) break
+        root = parentLoc
       }
-      return base
-    },
-    [locations, locationMatches, locationQuery, draft.location]
-  )
+      return root.id
+    })
+    const firstRoot = roots[0]
+    if (!firstRoot) return null
+    const mismatch = roots.find((r) => r !== firstRoot)
+    if (mismatch) return "All locations must belong to the same top-level location."
+    return null
+  }, [draft.locations, locations])
 
   const parentOptions = useMemo(() => {
     const source = parentMatches ?? stockOptions
@@ -205,7 +253,10 @@ export function CreateOrUpdateStockDialog({
     setDraft(toDraft(stock, locations))
   }, [stock, locations, open])
 
-  const errors = useMemo(() => (submitted ? validateDraft(draft, mode) : {}), [draft, submitted, mode])
+  const errors = useMemo(
+    () => (submitted ? validateDraft(draft, mode, locationMismatchError) : {}),
+    [draft, submitted, mode, locationMismatchError]
+  )
 
   return (
     <Dialog
@@ -232,7 +283,7 @@ export function CreateOrUpdateStockDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-4">
+        <div className="grid gap-4 max-h-[65vh] overflow-y-auto pr-1">
           <div className="grid gap-2">
             <div className="text-xs font-medium text-muted-foreground">Part Name</div>
             <Input
@@ -259,9 +310,16 @@ export function CreateOrUpdateStockDialog({
             {errors.brand && <div className="text-xs text-destructive">{errors.brand}</div>}
           </div>
 
+          <div className="rounded-md border border-muted bg-muted/30 px-3 py-2">
+            <div className="text-xs font-medium text-muted-foreground">Top-Level Location</div>
+            <div className="text-sm font-medium text-foreground">{computedTopLevelName}</div>
+            <div className="text-xs text-muted-foreground mt-1">Automatically computed from selected locations below.</div>
+            {errors.top_level_location && <div className="text-xs text-destructive mt-1">{errors.top_level_location}</div>}
+          </div>
+
           <div className="grid gap-2">
-            <div className="text-xs font-medium text-muted-foreground">Location</div>
-            <Input value={locationQuery} onChange={(e) => setLocationQuery(e.target.value)} placeholder="Search location…" />
+            <div className="text-xs font-medium text-muted-foreground">Available Locations</div>
+            <Input value={locationQuery} onChange={(e) => setLocationQuery(e.target.value)} placeholder="Search available locations…" />
             {locationQuery.trim() && (
               <div className="overflow-hidden rounded-md border bg-background">
                 {locationSearching ? (
@@ -276,23 +334,46 @@ export function CreateOrUpdateStockDialog({
                         type="button"
                         className={cn(
                           "w-full px-3 py-2 text-left text-sm hover:bg-muted",
-                          l.id === draft.location && "bg-muted"
+                          draft.locations.includes(l.id) && "bg-muted"
                         )}
                         onClick={() => {
-                          setDraft((p) => ({ ...p, location: l.id }))
+                          setDraft((p) => ({
+                            ...p,
+                            locations: p.locations.includes(l.id)
+                              ? p.locations.filter((id) => id !== l.id)
+                              : [...p.locations, l.id],
+                          }))
                           setLocationQuery("")
                           setLocationMatches(null)
                         }}
                       >
-                        {l.location}
+                        {draft.locations.includes(l.id) ? "✓ " : ""}{l.location}
                       </button>
                     ))}
                   </div>
                 )}
               </div>
             )}
-            <Select value={draft.location} onChange={(v) => setDraft((p) => ({ ...p, location: v }))} options={locationOptions} />
-            {errors.location && <div className="text-xs text-destructive">{errors.location}</div>}
+            {draft.locations.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {draft.locations.map((locId) => {
+                  const loc = locations.find((l) => l.id === locId)
+                  return (
+                    <span key={locId} className="inline-flex items-center gap-1 rounded bg-muted px-2 py-0.5 text-xs">
+                      {loc?.location ?? locId}
+                      <button
+                        type="button"
+                        onClick={() => setDraft((p) => ({ ...p, locations: p.locations.filter((id) => id !== locId) }))}
+                        className="text-muted-foreground hover:text-destructive"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  )
+                })}
+              </div>
+            )}
+            <div className="text-xs text-muted-foreground">Select all locations where this stock is available.</div>
           </div>
 
           <div className="grid gap-2">
@@ -390,13 +471,14 @@ export function CreateOrUpdateStockDialog({
             onClick={() => {
               setSubmitted(true)
               setSaveError("")
-              const nextErrors = validateDraft(draft, mode)
+              const nextErrors = validateDraft(draft, mode, locationMismatchError)
               if (Object.keys(nextErrors).length > 0) return
               const next: Stock = {
                 id: stock?.id ?? `stk_${Math.random().toString(16).slice(2)}`,
                 part_name: draft.part_name.trim(),
                 part_number: draft.part_number.trim(),
-                location: draft.location,
+                top_level_location: draft.top_level_location,
+                locations: draft.locations,
                 balance: Number(draft.balance || 0),
                 parent: draft.parent ? draft.parent : null,
                 price: draft.price.trim() ? Number(draft.price) : null,

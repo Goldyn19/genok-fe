@@ -166,11 +166,18 @@ export type ApiStock = {
   brand?: string | null
   is_original?: boolean
   display_balance: number
-  location_detail?: {
+  top_level_location: string
+  top_level_location_detail?: {
     id: string
     location: string
     parent?: string | null
   }
+  locations: string[]
+  locations_details?: Array<{
+    id: string
+    location: string
+    parent?: string | null
+  }>
 }
 
 export type ApiPurchase = {

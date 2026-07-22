@@ -38,7 +38,7 @@ function compare(a: Stock, b: Stock, key: SortKey, dir: SortDir, locations: Loca
   const locationLabel = (id: string) => locations.find((l) => l.id === id)?.location ?? ""
   if (key === "balance") return mult * (a.balance - b.balance)
   if (key === "price") return mult * ((a.price ?? -1) - (b.price ?? -1))
-  if (key === "location") return mult * locationLabel(a.location).localeCompare(locationLabel(b.location))
+  if (key === "location") return mult * locationLabel(a.top_level_location).localeCompare(locationLabel(b.top_level_location))
   return mult * String(a[key]).localeCompare(String(b[key]))
 }
 
@@ -47,7 +47,8 @@ function mapApiStockRow(r: ApiStock): Stock {
     id: r.id,
     part_name: r.part_name,
     part_number: r.part_number,
-    location: r.location_detail?.id ?? "",
+    top_level_location: r.top_level_location ?? "",
+    locations: r.locations ?? [],
     balance: r.display_balance,
     parent: r.parent ?? null,
     price: r.price ?? null,
@@ -165,9 +166,9 @@ export function InventoryPage() {
   const filtered = useMemo(() => {
     const term = q.trim().toLowerCase()
     return stock.filter((s) => {
-      const hay = [s.part_name, s.part_number, s.brand ?? "", s.location].join(" ").toLowerCase()
+      const hay = [s.part_name, s.part_number, s.brand ?? "", s.top_level_location].join(" ").toLowerCase()
       const matchTerm = !term || hay.includes(term)
-      const matchLocation = !locationFilter || s.location === locationFilter
+      const matchLocation = !locationFilter || s.top_level_location === locationFilter
       return matchTerm && matchLocation
     })
   }, [q, stock, locationFilter])
@@ -317,7 +318,7 @@ export function InventoryPage() {
           const purchase = await apiCreatePurchase(apiBaseUrl, tokenStr, {
             name: selected.part_name,
             part_number: selected.part_number,
-            location: selected.location,
+            location: selected.top_level_location,
             price,
             quantity,
             is_new_product: false,
@@ -356,7 +357,8 @@ export function InventoryPage() {
 
             if (next.part_name !== selected.part_name) patch.part_name = next.part_name
             if (next.part_number !== selected.part_number) patch.part_number = next.part_number
-            if (next.location !== selected.location) patch.location = next.location
+            if (next.top_level_location !== selected.top_level_location) patch.top_level_location = next.top_level_location
+            if (JSON.stringify(next.locations ?? []) !== JSON.stringify(selected.locations ?? [])) patch.locations = next.locations
             if ((next.parent ?? null) !== (selected.parent ?? null)) patch.parent = next.parent ?? null
             if ((next.price ?? null) !== (selected.price ?? null)) patch.price = next.price ?? null
             if ((next.brand ?? null) !== (selected.brand ?? null)) patch.brand = next.brand ?? null
@@ -387,7 +389,7 @@ export function InventoryPage() {
           const purchase = await apiCreatePurchase(apiBaseUrl, tokenStr, {
             name: next.part_name,
             part_number: next.part_number,
-            location: next.location,
+            location: next.top_level_location,
             price: next.price ?? null,
             quantity: next.balance,
             is_new_product: true,
