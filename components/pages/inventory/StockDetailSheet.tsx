@@ -7,8 +7,32 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { Button } from "@/components/ui/button"
 import { formatCurrency } from "@/lib/metrics"
 
-function locationLabel(locations: Location[], id: string) {
-  return locations.find((l) => l.id === id)?.location ?? "Unknown"
+function locationLookup(locations: Location[]) {
+  return new Map(locations.map((location) => [location.id, location]))
+}
+
+function locationPath(locations: Location[], id: string) {
+  const lookup = locationLookup(locations)
+  const parts: string[] = []
+  const seen = new Set<string>()
+  let current = lookup.get(id)
+
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id)
+    parts.unshift(current.location)
+    current = current.parent ? lookup.get(current.parent) : undefined
+  }
+
+  return parts.join(" / ")
+}
+
+function locationNames(locations: Location[], ids: string[]) {
+  const lookup = locationLookup(locations)
+  return ids.map((id) => lookup.get(id)?.location ?? id).join(", ")
+}
+
+function locationPaths(locations: Location[], ids: string[]) {
+  return ids.map((id) => locationPath(locations, id) || id).join(", ")
 }
 
 export function StockDetailSheet({
@@ -43,7 +67,8 @@ export function StockDetailSheet({
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-lg border bg-card p-4">
                 <div className="text-xs text-muted-foreground">Location</div>
-                <div className="text-sm font-medium text-foreground">{locationLabel(locations, stock.top_level_location)}</div>
+                <div className="text-sm font-medium text-foreground md:hidden">{locationNames(locations, stock.locations)}</div>
+                <div className="hidden text-sm font-medium text-foreground md:block">{locationPaths(locations, stock.locations)}</div>
               </div>
               <div className="rounded-lg border bg-card p-4">
                 <div className="text-xs text-muted-foreground">Balance</div>

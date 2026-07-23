@@ -12,8 +12,32 @@ import { Badge } from "@/components/ui/badge"
 type SortKey = "part_name" | "part_number" | "location" | "balance" | "price"
 type SortDir = "asc" | "desc"
 
-function locationLabel(locations: Location[], id: string) {
-  return locations.find((l) => l.id === id)?.location ?? "Unknown"
+function locationLookup(locations: Location[]) {
+  return new Map(locations.map((location) => [location.id, location]))
+}
+
+function locationPath(locations: Location[], id: string) {
+  const lookup = locationLookup(locations)
+  const parts: string[] = []
+  const seen = new Set<string>()
+  let current = lookup.get(id)
+
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id)
+    parts.unshift(current.location)
+    current = current.parent ? lookup.get(current.parent) : undefined
+  }
+
+  return parts.join(" / ")
+}
+
+function locationNames(locations: Location[], ids: string[]) {
+  const lookup = locationLookup(locations)
+  return ids.map((id) => lookup.get(id)?.location ?? id).join(", ")
+}
+
+function locationPaths(locations: Location[], ids: string[]) {
+  return ids.map((id) => locationPath(locations, id) || id).join(", ")
 }
 
 function statusBadge(balance: number, lowStockThreshold: number) {
@@ -97,7 +121,10 @@ export function StockTable({
                 )}
               </TableCell>
               <TableCell className="text-muted-foreground">{r.part_number}</TableCell>
-              <TableCell className="text-muted-foreground">{locationLabel(locations, r.top_level_location)}</TableCell>
+              <TableCell className="text-muted-foreground">
+                <div className="md:hidden">{locationNames(locations, r.locations)}</div>
+                <div className="hidden md:block">{locationPaths(locations, r.locations)}</div>
+              </TableCell>
               <TableCell className="text-right tabular-nums">{r.balance}</TableCell>
               <TableCell className="text-right tabular-nums">{formatCurrency(r.price)}</TableCell>
               <TableCell>

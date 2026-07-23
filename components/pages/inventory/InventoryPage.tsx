@@ -33,12 +33,41 @@ const PAGE_SIZE = 10
 type SortKey = "part_name" | "part_number" | "location" | "balance" | "price"
 type SortDir = "asc" | "desc"
 
+function locationLookup(locations: Location[]) {
+  return new Map(locations.map((location) => [location.id, location]))
+}
+
+function locationPath(locations: Location[], id: string) {
+  const lookup = locationLookup(locations)
+  const parts: string[] = []
+  const seen = new Set<string>()
+  let current = lookup.get(id)
+
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id)
+    parts.unshift(current.location)
+    current = current.parent ? lookup.get(current.parent) : undefined
+  }
+
+  return parts.join(" / ")
+}
+
+function stockLocationNames(stock: Stock, locations: Location[]) {
+  const lookup = locationLookup(locations)
+  return stock.locations.map((id) => lookup.get(id)?.location ?? id)
+}
+
+function stockLocationPaths(stock: Stock, locations: Location[]) {
+  return stock.locations.map((id) => locationPath(locations, id) || id)
+}
+
 function compare(a: Stock, b: Stock, key: SortKey, dir: SortDir, locations: Location[]) {
   const mult = dir === "asc" ? 1 : -1
-  const locationLabel = (id: string) => locations.find((l) => l.id === id)?.location ?? ""
   if (key === "balance") return mult * (a.balance - b.balance)
   if (key === "price") return mult * ((a.price ?? -1) - (b.price ?? -1))
-  if (key === "location") return mult * locationLabel(a.top_level_location).localeCompare(locationLabel(b.top_level_location))
+  if (key === "location") {
+    return mult * stockLocationPaths(a, locations).join(", ").localeCompare(stockLocationPaths(b, locations).join(", "))
+  }
   return mult * String(a[key]).localeCompare(String(b[key]))
 }
 
@@ -166,12 +195,13 @@ export function InventoryPage() {
   const filtered = useMemo(() => {
     const term = q.trim().toLowerCase()
     return stock.filter((s) => {
-      const hay = [s.part_name, s.part_number, s.brand ?? "", s.top_level_location].join(" ").toLowerCase()
+      const locationHay = [...stockLocationNames(s, locations), ...stockLocationPaths(s, locations)].join(" ")
+      const hay = [s.part_name, s.part_number, s.brand ?? "", locationHay].join(" ").toLowerCase()
       const matchTerm = !term || hay.includes(term)
-      const matchLocation = !locationFilter || s.top_level_location === locationFilter
+      const matchLocation = !locationFilter || s.locations.includes(locationFilter)
       return matchTerm && matchLocation
     })
-  }, [q, stock, locationFilter])
+  }, [q, stock, locationFilter, locations])
 
   const sorted = useMemo(() => {
     if (!sort) return filtered
