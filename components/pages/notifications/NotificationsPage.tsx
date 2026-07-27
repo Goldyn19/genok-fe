@@ -31,6 +31,7 @@ import {
   type ApiSalesApprovalStatusResponse,
   type ApiSalesItem,
 } from "@/lib/api"
+import { formatCurrency } from "@/lib/metrics"
 import { getErrorMessage } from "@/lib/rbacUtils"
 import { useUIStore } from "@/store/uiStore"
 import { Button } from "@/components/ui/button"
@@ -105,6 +106,10 @@ function salesProgress(item: ApiSalesItem) {
   const total = item.approvals.length
   const done = item.approvals.filter((a) => a.status === "confirmed").length
   return total > 0 ? Math.round((done / total) * 100) : 0
+}
+
+function salesTimestamp(item: Pick<ApiSalesItem, "sold_at" | "created_at">) {
+  return item.sold_at || item.created_at
 }
 
 function canEditPurchase(item: ApiPurchaseListItem) {
@@ -1120,7 +1125,7 @@ export function NotificationsPage() {
                         <TableCell>{p.name}</TableCell>
                         <TableCell className="font-mono text-xs">{p.part_number}</TableCell>
                         <TableCell>{p.quantity}</TableCell>
-                        <TableCell>{p.total_amount}</TableCell>
+                        <TableCell>{formatCurrency(Number(p.total_amount))}</TableCell>
                         <TableCell>{p.location_details?.location ?? p.location}</TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">
@@ -1240,7 +1245,7 @@ export function NotificationsPage() {
                         <TableCell>{p.name}</TableCell>
                         <TableCell className="font-mono text-xs">{p.part_number}</TableCell>
                         <TableCell>{p.quantity}</TableCell>
-                        <TableCell>{p.total_amount}</TableCell>
+                        <TableCell>{formatCurrency(Number(p.total_amount))}</TableCell>
                         <TableCell>{p.location_details?.location ?? p.location}</TableCell>
                         <TableCell>
                           <Badge variant="outline" className={statusColor(p.status)}>
@@ -1600,8 +1605,8 @@ export function NotificationsPage() {
                         <TableCell>{s.part_name}</TableCell>
                         <TableCell className="font-mono text-xs">{s.part_number}</TableCell>
                         <TableCell>{s.quantity}</TableCell>
-                        <TableCell>{s.unit_price}</TableCell>
-                        <TableCell>{s.total_price}</TableCell>
+                        <TableCell>{formatCurrency(s.unit_price)}</TableCell>
+                        <TableCell>{formatCurrency(s.total_price)}</TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">
                             <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden">
@@ -1614,7 +1619,7 @@ export function NotificationsPage() {
                           </div>
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">
-                          {new Date(s.created_at).toLocaleDateString()}
+                          {new Date(salesTimestamp(s)).toLocaleDateString()}
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-1">
@@ -1709,8 +1714,8 @@ export function NotificationsPage() {
                         <TableCell>{s.part_name}</TableCell>
                         <TableCell className="font-mono text-xs">{s.part_number}</TableCell>
                         <TableCell>{s.quantity}</TableCell>
-                        <TableCell>{s.unit_price}</TableCell>
-                        <TableCell>{s.total_price}</TableCell>
+                        <TableCell>{formatCurrency(s.unit_price)}</TableCell>
+                        <TableCell>{formatCurrency(s.total_price)}</TableCell>
                         <TableCell>
                           <Badge variant="outline" className={statusColor(s.status)}>
                             {s.status}
@@ -1728,7 +1733,7 @@ export function NotificationsPage() {
                           </div>
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">
-                          {new Date(s.created_at).toLocaleDateString()}
+                          {new Date(salesTimestamp(s)).toLocaleDateString()}
                         </TableCell>
                         <TableCell>
                           <Button size="sm" variant="ghost" onClick={() => loadSalesDetail(s.id)}>
@@ -1788,7 +1793,7 @@ export function NotificationsPage() {
                   </div>
                   <div className="rounded-md border bg-background p-3">
                     <p className="text-xs text-muted-foreground">Total Amount</p>
-                    <p className="mt-1 text-xl font-semibold text-foreground">{detail.total_amount}</p>
+                    <p className="mt-1 text-xl font-semibold text-foreground">{formatCurrency(Number(detail.total_amount))}</p>
                   </div>
                 </div>
 
@@ -2149,12 +2154,20 @@ export function NotificationsPage() {
                   </Badge>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">Created</p>
-                  <p>{new Date(salesStatus.created_at).toLocaleString()}</p>
+                  <p className="text-xs text-muted-foreground">Sold At</p>
+                  <p>{new Date(salesStatus.sold_at || salesStatus.created_at).toLocaleString()}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Sold By</p>
+                  <p>{salesDetail.sold_by_details?.full_name || salesDetail.sold_by_details?.email || "—"}</p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Approval Progress</p>
                   <p>{salesStatus.progress_percentage}%</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Entered By</p>
+                  <p>{salesDetail.entered_by_details?.full_name || salesDetail.entered_by_details?.email || "—"}</p>
                 </div>
               </div>
 

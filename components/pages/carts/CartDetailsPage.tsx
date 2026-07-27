@@ -13,6 +13,7 @@ import {
   apiListCreditCustomers,
   apiGetCart,
   apiRemoveCartItem,
+  apiSearchUsers,
   apiSearchStock,
   apiUpdateCart,
   apiUpdateCartItem,
@@ -20,6 +21,7 @@ import {
   type ApiCart,
   type ApiCreditCustomer,
   type ApiStock,
+  type RbacUser,
 } from "@/lib/api"
 import { formatMoney } from "@/lib/cartUtils"
 import { Badge } from "@/components/ui/badge"
@@ -32,6 +34,17 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 
 function formatDateTime(ts: string) {
   return new Date(ts).toLocaleString()
+}
+
+function toDateTimeLocalValue(value: Date | string) {
+  const d = typeof value === "string" ? new Date(value) : value
+  if (Number.isNaN(d.getTime())) return ""
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function userLabel(user: RbacUser) {
+  return user.full_name?.trim() || user.email || user.username
 }
 
 export function CartDetailsPage() {
@@ -60,6 +73,12 @@ export function CartDetailsPage() {
   const [creditError, setCreditError] = useState<string | null>(null)
   const [newCreditCustomerName, setNewCreditCustomerName] = useState("")
   const [creatingCreditCustomer, setCreatingCreditCustomer] = useState(false)
+  const [soldAtInput, setSoldAtInput] = useState("")
+  const [soldByQuery, setSoldByQuery] = useState("")
+  const [soldByResults, setSoldByResults] = useState<RbacUser[]>([])
+  const [soldByLoading, setSoldByLoading] = useState(false)
+  const [soldByError, setSoldByError] = useState<string | null>(null)
+  const [selectedSoldBy, setSelectedSoldBy] = useState<RbacUser | null>(null)
   const [checkingOut, setCheckingOut] = useState(false)
   const [checkoutError, setCheckoutError] = useState<string | null>(null)
 
@@ -126,7 +145,50 @@ export function CartDetailsPage() {
     setCreditError(null)
     setNewCreditCustomerName(cart?.customer_name ?? "")
     setCreatingCreditCustomer(false)
+    setSoldAtInput("")
+    setSoldByQuery("")
+    setSoldByResults([])
+    setSoldByLoading(false)
+    setSoldByError(null)
+    setSelectedSoldBy(null)
   }, [cart?.customer_name, checkoutOpen])
+
+  useEffect(() => {
+    if (!checkoutOpen) return
+    if (!token) return
+    const term = soldByQuery.trim()
+    if (term.length < 2) {
+      setSoldByResults([])
+      setSoldByLoading(false)
+      return
+    }
+
+    let cancelled = false
+    const t = setTimeout(async () => {
+      try {
+        setSoldByLoading(true)
+        setSoldByError(null)
+        const users = await apiSearchUsers(apiBaseUrl, token, term)
+        if (cancelled) return
+        setSoldByResults(users)
+      } catch (e) {
+        if (cancelled) return
+        const message =
+          typeof e === "object" && e != null && "message" in e && typeof (e as { message?: unknown }).message === "string"
+            ? ((e as { message?: unknown }).message as string)
+            : "Failed to search users"
+        setSoldByError(message)
+        setSoldByResults([])
+      } finally {
+        if (!cancelled) setSoldByLoading(false)
+      }
+    }, 300)
+
+    return () => {
+      cancelled = true
+      clearTimeout(t)
+    }
+  }, [apiBaseUrl, checkoutOpen, soldByQuery, token])
 
   useEffect(() => {
     if (!addOpen) return
@@ -514,6 +576,91 @@ export function CartDetailsPage() {
               />
             </div>
 
+            <div className="space-y-3 rounded-md border p-3">
+              <div>
+                <div className="text-sm font-medium text-foreground">Historical sale details</div>
+                <div className="text-xs text-muted-foreground">Optional. Leave empty for a normal checkout using your account and the current time.</div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="text-sm text-muted-foreground">Actual sale time</div>
+                <Input
+                  type="datetime-local"
+                  max={toDateTimeLocalValue(new Date())}
+                  value={soldAtInput}
+                  onChange={(e) => {
+                    setSoldAtInput(e.target.value)
+                    setCheckoutError(null)
+                  }}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <div className="text-sm text-muted-foreground">Actual salesperson</div>
+                {selectedSoldBy && (
+                  <div className="flex items-center justify-between rounded-md border bg-card p-3">
+                    <div>
+                      <div className="text-sm font-medium text-foreground">{userLabel(selectedSoldBy)}</div>
+                      <div className="text-xs text-muted-foreground">{selectedSoldBy.email}</div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setSelectedSoldBy(null)
+                        setSoldByQuery("")
+                        setSoldByResults([])
+                        setSoldByError(null)
+                      }}
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                )}
+                <Input
+                  value={soldByQuery}
+                  onChange={(e) => {
+                    setSoldByQuery(e.target.value)
+                    setSoldByError(null)
+                    setCheckoutError(null)
+                  }}
+                  placeholder="Search users by name or email"
+                />
+                {soldByError && <div className="text-sm text-red-600">{soldByError}</div>}
+                {soldByLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Searching users…
+                  </div>
+                ) : soldByQuery.trim().length >= 2 && soldByResults.length > 0 ? (
+                  <div className="max-h-40 overflow-auto rounded-md border">
+                    {soldByResults.map((user) => (
+                      <button
+                        key={user.id}
+                        type="button"
+                        className="flex w-full items-center justify-between border-b px-3 py-2 text-left last:border-b-0 hover:bg-muted/40"
+                        onClick={() => {
+                          setSelectedSoldBy(user)
+                          setSoldByQuery(userLabel(user))
+                          setSoldByResults([])
+                          setSoldByError(null)
+                        }}
+                      >
+                        <div>
+                          <div className="text-sm font-medium text-foreground">{userLabel(user)}</div>
+                          <div className="text-xs text-muted-foreground">{user.email}</div>
+                        </div>
+                        <div className="text-xs text-muted-foreground">{user.is_active ? "Active" : "Inactive"}</div>
+                      </button>
+                    ))}
+                  </div>
+                ) : soldByQuery.trim().length >= 2 ? (
+                  <div className="text-xs text-muted-foreground">No users found.</div>
+                ) : null}
+              </div>
+            </div>
+
             {checkoutMode === "pay" ? (
               <div className="space-y-2">
                 <div className="text-sm text-muted-foreground">Payment method</div>
@@ -608,12 +755,36 @@ export function CartDetailsPage() {
               onClick={async () => {
                 if (!token) return
                 try {
+                  let soldAtIso: string | undefined
+                  if (soldAtInput.trim()) {
+                    const parsed = new Date(soldAtInput)
+                    if (Number.isNaN(parsed.getTime())) {
+                      setCheckoutError("Enter a valid sale date and time")
+                      return
+                    }
+                    if (parsed.getTime() > Date.now()) {
+                      setCheckoutError("Sale date cannot be in the future")
+                      return
+                    }
+                    soldAtIso = parsed.toISOString()
+                  }
+
+                  const payload: {
+                    payment_method: "cash" | "bank_transfer" | "pos" | "credit"
+                    credit_customer_id?: string
+                    sold_at?: string
+                    sold_by?: number
+                  } =
+                    checkoutMode === "credit"
+                      ? { payment_method: "credit", credit_customer_id: creditCustomerId }
+                      : { payment_method: paymentMethod }
+
+                  if (soldAtIso) payload.sold_at = soldAtIso
+                  if (selectedSoldBy) payload.sold_by = selectedSoldBy.id
+
                   setCheckingOut(true)
                   setCheckoutError(null)
-                  const updated =
-                    checkoutMode === "credit"
-                      ? await apiCheckoutCart(apiBaseUrl, token, cart.id, { payment_method: "credit", credit_customer_id: creditCustomerId })
-                      : await apiCheckoutCart(apiBaseUrl, token, cart.id, { payment_method: paymentMethod })
+                  const updated = await apiCheckoutCart(apiBaseUrl, token, cart.id, payload)
                   setCart(updated)
                   setCustomerName(updated.customer_name)
                   setCheckoutOpen(false)

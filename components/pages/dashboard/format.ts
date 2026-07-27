@@ -1,7 +1,7 @@
 export function formatMoney(value: number) {
-  return value.toLocaleString(undefined, {
+  return value.toLocaleString("en-NG", {
     style: "currency",
-    currency: "USD",
+    currency: "NGN",
     maximumFractionDigits: 0,
   })
 }

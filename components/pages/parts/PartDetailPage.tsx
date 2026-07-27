@@ -21,6 +21,10 @@ function parseMoney(value: unknown): number | null {
   return Number.isFinite(n) ? n : null
 }
 
+function saleTimestamp(sale: ApiSalesItem) {
+  return sale.sold_at || sale.created_at
+}
+
 export function PartDetailPage({ partNumber }: { partNumber: string }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -96,7 +100,7 @@ export function PartDetailPage({ partNumber }: { partNumber: string }) {
   const saleRows = useMemo(() => {
     return sales
       .slice()
-      .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
+      .sort((a, b) => Date.parse(saleTimestamp(b)) - Date.parse(saleTimestamp(a)))
   }, [sales])
 
   return (
@@ -203,7 +207,7 @@ export function PartDetailPage({ partNumber }: { partNumber: string }) {
               <TableBody>
                 {saleRows.map((s) => (
                   <TableRow key={s.id}>
-                    <TableCell className="text-sm">{new Date(s.created_at).toLocaleString()}</TableCell>
+                    <TableCell className="text-sm">{new Date(saleTimestamp(s)).toLocaleString()}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">#{s.id}</TableCell>
                     <TableCell className="text-right tabular-nums">{s.quantity}</TableCell>
                     <TableCell className="text-right tabular-nums">{formatCurrency(s.unit_price)}</TableCell>

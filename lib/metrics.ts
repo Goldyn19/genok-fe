@@ -18,6 +18,6 @@ export function computeDashboardKpis(stock: Stock[], locations: Location[], lowS
 export function formatCurrency(value: number | null | undefined): string {
   if (value == null) return "—"
   const normalized = Number.isFinite(value) ? value : 0
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(normalized)
+  return new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN" }).format(normalized)
 }
 

@@ -312,6 +312,21 @@ export type ApiSalesItem = {
   unit_price: number
   total_price: number
   status: "pending" | "approved" | "rejected"
+  sold_at: string
+  sold_by: number | null
+  sold_by_details: {
+    id: number
+    username: string
+    email: string
+    full_name: string
+  } | null
+  entered_by: number | null
+  entered_by_details: {
+    id: number
+    username: string
+    email: string
+    full_name: string
+  } | null
   approvals: ApiSalesApprovalStep[]
   created_at: string
 }
@@ -348,6 +363,7 @@ export type ApiSalesApprovalStatusResponse = {
   current_required_permission: string | null
   total_amount: number
   created_at: string
+  sold_at?: string | null
   approval_chain: ApiSalesApprovalChainItem[]
   can_approve: boolean
   can_reject: boolean
@@ -938,7 +954,12 @@ export async function apiCheckoutCart(
   baseUrl: string,
   token: string,
   cartId: string,
-  payload?: { payment_method: "cash" | "bank_transfer" | "pos" | "credit"; credit_customer_id?: string }
+  payload?: {
+    payment_method: "cash" | "bank_transfer" | "pos" | "credit"
+    credit_customer_id?: string
+    sold_at?: string
+    sold_by?: number
+  }
 ) {
   return requestJson<ApiCart>({
     baseUrl,

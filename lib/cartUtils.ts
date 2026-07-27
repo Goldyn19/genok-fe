@@ -20,7 +20,7 @@ export function computeCartSubtotal(arg: Array<Pick<CartItem, "quantity" | "unit
 
 export function formatMoney(amount: number) {
   const n = safeNumber(amount, 0)
-  return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(n)
+  return new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN" }).format(n)
 }
 
 export function isCartCheckoutReady(cart: Pick<Cart, "status"> & { items: Array<Pick<CartItem, "name" | "quantity" | "unitPrice">> }) {
