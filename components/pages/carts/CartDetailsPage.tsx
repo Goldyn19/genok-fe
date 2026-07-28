@@ -82,6 +82,7 @@ export function CartDetailsPage() {
   const [checkingOut, setCheckingOut] = useState(false)
   const [checkoutError, setCheckoutError] = useState<string | null>(null)
 
+  const [stockQueryInput, setStockQueryInput] = useState("")
   const [stockQuery, setStockQuery] = useState("")
   const [stockResults, setStockResults] = useState<ApiStock[]>([])
   const [stockLoading, setStockLoading] = useState(false)
@@ -125,6 +126,7 @@ export function CartDetailsPage() {
 
   useEffect(() => {
     if (!addOpen) return
+    setStockQueryInput("")
     setStockQuery("")
     setStockResults([])
     setSelectedStock(null)
@@ -813,8 +815,17 @@ export function CartDetailsPage() {
           </DialogHeader>
           <div className="min-h-0 flex-1 space-y-3 overflow-auto">
             <div className="space-y-2">
-              <div className="text-sm text-muted-foreground">Search stock by part name/number</div>
-              <Input value={stockQuery} onChange={(e) => setStockQuery(e.target.value)} placeholder="e.g. 12V or ABC-123" />
+              <div className="text-sm text-muted-foreground">Search stock by part name/number. Press Enter to search.</div>
+              <Input
+                value={stockQueryInput}
+                onChange={(e) => setStockQueryInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    setStockQuery(stockQueryInput.trim())
+                  }
+                }}
+                placeholder="e.g. 12V or ABC-123"
+              />
             </div>
 
             <div className="rounded-md border">
@@ -837,7 +848,7 @@ export function CartDetailsPage() {
                   {!stockLoading && stockQuery.trim().length === 0 && (
                     <TableRow>
                       <TableCell colSpan={3} className="py-10 text-center text-sm text-muted-foreground">
-                        Start typing to search stock.
+                        Type a search term and press Enter.
                       </TableCell>
                     </TableRow>
                   )}
@@ -857,6 +868,11 @@ export function CartDetailsPage() {
                         <TableCell>
                           <div className="text-sm font-medium text-foreground">{s.part_name}</div>
                           <div className="text-xs text-muted-foreground">{s.part_number}</div>
+                          <div className="mt-1 flex flex-wrap items-center gap-1">
+                            {s.brand?.trim() ? <span className="text-xs text-muted-foreground">{s.brand}</span> : null}
+                            <Badge variant="outline">{(s.is_caterpillar ?? true) ? "CAT" : "Non-CAT"}</Badge>
+                            <Badge variant="outline">{(s.is_original ?? true) ? "Original" : "Aftermarket"}</Badge>
+                          </div>
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground tabular-nums">{s.display_balance}</TableCell>
                         <TableCell className="text-right">
