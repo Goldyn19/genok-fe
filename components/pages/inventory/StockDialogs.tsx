@@ -109,7 +109,7 @@ export function CreateOrUpdateStockDialog({
 
   useEffect(() => {
     if (!open) return
-    const existing = stock?.top_level_location ?? computedTopLevel ?? ""
+    const existing = computedTopLevel ?? stock?.top_level_location ?? ""
     setDraft((prev) => ({ ...prev, top_level_location: existing }))
   }, [open, computedTopLevel, stock?.top_level_location])
 
