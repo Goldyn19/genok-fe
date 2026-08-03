@@ -306,7 +306,15 @@ export function CreateOrUpdateStockDialog({
 
           <div className="grid gap-2">
             <div className="text-xs font-medium text-muted-foreground">Brand (optional)</div>
-            <Input value={draft.brand} onChange={(e) => setDraft((p) => ({ ...p, brand: e.target.value }))} placeholder="e.g., Caterpillar" />
+            <Input
+              value={draft.brand}
+              onChange={(e) => setDraft((p) => ({ ...p, brand: e.target.value }))}
+              placeholder={draft.is_caterpillar === "true" ? "Brand is disabled for Caterpillar stock" : "e.g., Perkins"}
+              disabled={draft.is_caterpillar === "true"}
+            />
+            {draft.is_caterpillar === "true" && (
+              <div className="text-xs text-muted-foreground">Brand is only editable when Caterpillar is set to No.</div>
+            )}
             {errors.brand && <div className="text-xs text-destructive">{errors.brand}</div>}
           </div>
 
@@ -440,7 +448,13 @@ export function CreateOrUpdateStockDialog({
               <div className="text-xs font-medium text-muted-foreground">Caterpillar</div>
               <Select
                 value={draft.is_caterpillar}
-                onChange={(v) => setDraft((p) => ({ ...p, is_caterpillar: v }))}
+                onChange={(v) =>
+                  setDraft((p) => ({
+                    ...p,
+                    is_caterpillar: v,
+                    brand: v === "true" ? "" : p.brand,
+                  }))
+                }
                 options={[
                   { value: "true", label: "Yes" },
                   { value: "false", label: "No" },

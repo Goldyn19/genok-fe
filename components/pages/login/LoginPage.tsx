@@ -30,10 +30,16 @@ function getErrorMessage(err: unknown) {
   return "Login failed"
 }
 
+function normalizeRedirectPath(value: string | null | undefined) {
+  if (!value) return "/dashboard"
+  if (value.startsWith("/") && !value.startsWith("//")) return value
+  return "/dashboard"
+}
+
 export function LoginPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const nextPath = searchParams.get("next") || "/dashboard"
+  const nextPath = normalizeRedirectPath(searchParams.get("callbackUrl") || searchParams.get("next"))
 
   const [form, setForm] = useState<FormState>({ email: "", password: "" })
   const [showPassword, setShowPassword] = useState(false)
