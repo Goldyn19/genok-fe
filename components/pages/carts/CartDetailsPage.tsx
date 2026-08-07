@@ -36,6 +36,35 @@ function formatDateTime(ts: string) {
   return new Date(ts).toLocaleString()
 }
 
+function salesStatusLabel(status: NonNullable<ApiCart["sales_order"]>["status"]) {
+  switch (status) {
+    case "approved":
+      return "Approved"
+    case "rejected":
+      return "Rejected"
+    case "cancelled":
+      return "Cancelled"
+    case "returned":
+      return "Returned"
+    default:
+      return "Pending approval"
+  }
+}
+
+function salesStatusVariant(status: NonNullable<ApiCart["sales_order"]>["status"]): "default" | "secondary" | "danger" | "outline" {
+  switch (status) {
+    case "approved":
+      return "default"
+    case "rejected":
+    case "cancelled":
+      return "danger"
+    case "returned":
+      return "outline"
+    default:
+      return "secondary"
+  }
+}
+
 function toDateTimeLocalValue(value: Date | string) {
   const d = typeof value === "string" ? new Date(value) : value
   if (Number.isNaN(d.getTime())) return ""
@@ -261,6 +290,8 @@ export function CartDetailsPage() {
     if (!cart) return 0
     return cart.items.reduce((sum, it) => sum + it.quantity * Number(it.unit_price ?? 0), 0)
   }, [cart])
+
+  const salesOrder = cart?.sales_order ?? null
 
   const canEdit = cart ? !cart.is_checked_out : false
   const canCheckout = cart ? !cart.is_checked_out && cart.items.length > 0 : false
@@ -512,6 +543,39 @@ export function CartDetailsPage() {
         </div>
 
         <div className="space-y-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Approval status</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {!salesOrder ? (
+                <div className="text-sm text-muted-foreground">No sales order yet. Checkout the cart to start the approval flow.</div>
+              ) : (
+                <>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant={salesStatusVariant(salesOrder.status)}>{salesStatusLabel(salesOrder.status)}</Badge>
+                    <Badge variant="outline">{salesOrder.approval_progress}% complete</Badge>
+                    {salesOrder.current_step ? <Badge variant="outline">Current step: {salesOrder.current_step}</Badge> : null}
+                  </div>
+                  <div className="space-y-1 text-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-muted-foreground">Sales order</div>
+                      <div className="font-medium text-foreground">{salesOrder.id}</div>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-muted-foreground">Sold at</div>
+                      <div className="text-right text-foreground">{formatDateTime(salesOrder.sold_at)}</div>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-muted-foreground">Payment method</div>
+                      <div className="text-right text-foreground">{salesOrder.payment_method ? salesOrder.payment_method.replaceAll("_", " ") : "—"}</div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Totals</CardTitle>
