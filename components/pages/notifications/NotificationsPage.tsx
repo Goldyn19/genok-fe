@@ -352,6 +352,8 @@ export function NotificationsPage() {
   const [pendingFilter, setPendingFilter] = useState("")
   const [requestFilter, setRequestFilter] = useState("")
   const [salesFilter, setSalesFilter] = useState("")
+  const [requestStatusFilter, setRequestStatusFilter] = useState("all")
+  const [salesStatusFilter, setSalesStatusFilter] = useState("all")
   const [myActionsFilter, setMyActionsFilter] = useState("")
 
   const [selectedId, setSelectedId] = useState<number | null>(null)
@@ -464,6 +466,12 @@ export function NotificationsPage() {
         const data = await apiListMyPurchasesPage(apiBaseUrl, token as string, {
           page: pageNumber,
           page_size: PURCHASE_PAGE_SIZE,
+          status:
+            requestStatusFilter === "all"
+              ? undefined
+              : requestStatusFilter === "rejected"
+                ? "failed"
+                : requestStatusFilter,
           search: requestFilter,
         })
         setMyRequests(data.results)
@@ -474,7 +482,7 @@ export function NotificationsPage() {
         setMyRequestsLoading(false)
       }
     },
-    [apiBaseUrl, canCallApi, requestFilter, token]
+    [apiBaseUrl, canCallApi, requestFilter, requestStatusFilter, token]
   )
 
   const loadMyActionsPage = useCallback(
@@ -589,6 +597,12 @@ export function NotificationsPage() {
         const data = await apiListMyPurchasesPage(apiBaseUrl, token as string, {
           page: myRequestsPage,
           page_size: PURCHASE_PAGE_SIZE,
+          status:
+            requestStatusFilter === "all"
+              ? undefined
+              : requestStatusFilter === "rejected"
+                ? "failed"
+                : requestStatusFilter,
           search: requestFilter,
         })
         if (cancelled) return
@@ -606,7 +620,7 @@ export function NotificationsPage() {
     return () => {
       cancelled = true
     }
-  }, [activeTab, apiBaseUrl, canCallApi, myRequestsPage, requestFilter, token])
+  }, [activeTab, apiBaseUrl, canCallApi, myRequestsPage, requestFilter, requestStatusFilter, token])
 
   useEffect(() => {
     if (!canCallApi) return
@@ -1097,10 +1111,13 @@ export function NotificationsPage() {
 
   const filteredSalesMy = salesMy.filter(
     (s) =>
-      !salesFilter ||
-      s.part_name.toLowerCase().includes(salesFilter.toLowerCase()) ||
-      s.part_number.toLowerCase().includes(salesFilter.toLowerCase()) ||
-      s.status.toLowerCase().includes(salesFilter.toLowerCase())
+      (salesStatusFilter === "all" || s.status === salesStatusFilter) &&
+      (
+        !salesFilter ||
+        s.part_name.toLowerCase().includes(salesFilter.toLowerCase()) ||
+        s.part_number.toLowerCase().includes(salesFilter.toLowerCase()) ||
+        s.status.toLowerCase().includes(salesFilter.toLowerCase())
+      )
   )
 
   const selectedPending = pending.find((p) => p.id === actionPurchaseId)
@@ -1333,17 +1350,33 @@ export function NotificationsPage() {
       {activeTab === "purchase-my" && (
         <Card>
           <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <CardTitle className="text-base">My Purchases</CardTitle>
-              <Input
-                placeholder="Filter by name, part number, status..."
-                value={requestFilter}
-                onChange={(e) => {
-                  setRequestFilter(e.target.value)
-                  setMyRequestsPage(1)
-                }}
-                className="max-w-xs"
-              />
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <Select
+                  value={requestStatusFilter}
+                  onChange={(value) => {
+                    setRequestStatusFilter(value)
+                    setMyRequestsPage(1)
+                  }}
+                  options={[
+                    { value: "all", label: "All statuses" },
+                    { value: "pending", label: "Pending" },
+                    { value: "approved", label: "Approved" },
+                    { value: "confirmed", label: "Confirmed" },
+                    { value: "rejected", label: "Rejected" },
+                  ]}
+                />
+                <Input
+                  placeholder="Filter by name, part number, status..."
+                  value={requestFilter}
+                  onChange={(e) => {
+                    setRequestFilter(e.target.value)
+                    setMyRequestsPage(1)
+                  }}
+                  className="max-w-xs"
+                />
+              </div>
             </div>
           </CardHeader>
           <CardContent>
@@ -1907,14 +1940,26 @@ export function NotificationsPage() {
       {activeTab === "sales-my" && (
         <Card>
           <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <CardTitle className="text-base">My Sales</CardTitle>
-              <Input
-                placeholder="Filter by part, part number, status..."
-                value={salesFilter}
-                onChange={(e) => setSalesFilter(e.target.value)}
-                className="max-w-xs"
-              />
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <Select
+                  value={salesStatusFilter}
+                  onChange={setSalesStatusFilter}
+                  options={[
+                    { value: "all", label: "All statuses" },
+                    { value: "pending", label: "Pending" },
+                    { value: "approved", label: "Approved" },
+                    { value: "rejected", label: "Rejected" },
+                  ]}
+                />
+                <Input
+                  placeholder="Filter by part, part number, status..."
+                  value={salesFilter}
+                  onChange={(e) => setSalesFilter(e.target.value)}
+                  className="max-w-xs"
+                />
+              </div>
             </div>
           </CardHeader>
           <CardContent>
