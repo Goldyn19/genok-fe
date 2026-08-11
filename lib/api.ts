@@ -178,6 +178,7 @@ export type ApiCart = {
     approval_progress: number
     current_step: number | null
     total_items: number
+    items: ApiSalesItem[]
   } | null
 }
 
@@ -328,6 +329,47 @@ export type ApiSalesApprovalStep = {
   required_permission: string
 }
 
+export type ApiSalesReturnItem = {
+  id: string
+  sales_item: string
+  part_name: string
+  part_number: string
+  stock: string | null
+  quantity: number
+  reason: string
+  returned_by: number | null
+  returned_by_details: {
+    id: number
+    username: string
+    email: string
+    full_name: string
+  } | null
+  status: "pending" | "approved" | "rejected"
+  approval_progress: number
+  current_step_number: number | null
+  current_required_permission: string | null
+  can_current_user_approve: boolean
+  can_current_user_reject: boolean
+  approvals: ApiSalesReturnApprovalStep[]
+  created_at: string
+}
+
+export type ApiSalesReturnApprovalStep = {
+  id: number
+  sequence: number
+  status: "pending" | "confirmed" | "failed"
+  reason: string | null
+  approved_at: string | null
+  approved_by: number | null
+  approved_by_details: {
+    id: number
+    username: string
+    email: string
+    full_name: string
+  } | null
+  required_permission: string | null
+}
+
 export type ApiSalesItem = {
   id: string
   product: string | null
@@ -352,6 +394,13 @@ export type ApiSalesItem = {
     email: string
     full_name: string
   } | null
+  returned_quantity: number
+  pending_return_quantity: number
+  total_requested_return_quantity: number
+  remaining_returnable_quantity: number
+  remaining_requestable_return_quantity: number
+  is_fully_returned: boolean
+  returns: ApiSalesReturnItem[]
   approvals: ApiSalesApprovalStep[]
   created_at: string
 }
@@ -394,6 +443,49 @@ export type ApiSalesApprovalStatusResponse = {
   can_reject: boolean
 }
 
+export type ApiSalesReturnApprovalChainItem = {
+  step: number
+  required_permission?: string
+  status: "pending" | "confirmed" | "failed"
+  is_blocked: boolean
+  can_approve: boolean
+  approved_by: { id: number; username: string; full_name: string } | null
+  approved_at: string | null
+  reason: string | null
+}
+
+export type ApiSalesReturnApprovalStatusResponse = {
+  sales_return_id: string
+  sales_item_id: string
+  status: "pending" | "approved" | "rejected"
+  progress_percentage: number
+  current_step: number | null
+  current_required_permission: string | null
+  quantity: number
+  reason: string
+  created_at: string
+  sold_at?: string | null
+  approval_chain: ApiSalesReturnApprovalChainItem[]
+  can_approve: boolean
+  can_reject: boolean
+}
+
+export type ApiSalesReturnApproveResponse = {
+  message: string
+  sales_return_id: string
+  status: string
+  current_step: number | null
+  approval_progress: number
+  approvals: ApiSalesReturnApprovalStep[]
+}
+
+export type ApiSalesReturnRejectResponse = {
+  message: string
+  sales_return_id: string
+  status: string
+  reason: string
+}
+
 export type ApiSalesApproveResponse = {
   message: string
   sales_item_id: string
@@ -411,7 +503,7 @@ export type ApiSalesRejectResponse = {
 }
 
 export type ApiMyActionItem = {
-  type: "purchase" | "sale"
+  type: "purchase" | "sale" | "sale_return"
   approval_id: number
   object_id: number | string
   step: number
@@ -1166,7 +1258,7 @@ export async function apiListMyActionsPage(
 export async function apiRevokeMyAction(
   baseUrl: string,
   token: string,
-  body: { type: "purchase" | "sale"; approval_id: number }
+  body: { type: "purchase" | "sale" | "sale_return"; approval_id: number }
 ) {
   return requestJson<ApiRevokeActionResponse>({
     baseUrl,
@@ -1264,6 +1356,63 @@ export async function apiRejectSalesItem(baseUrl: string, token: string, salesIt
     baseUrl,
     method: "POST",
     path: `/purchases/sales-items/${encodeURIComponent(salesItemId)}/reject/`,
+    token,
+    body: { reason },
+  })
+}
+
+export async function apiCreateSalesReturn(
+  baseUrl: string,
+  token: string,
+  salesItemId: string,
+  payload: { quantity: number; reason: string }
+) {
+  return requestJson<ApiSalesReturnItem>({
+    baseUrl,
+    method: "POST",
+    path: `/purchases/sales-items/${encodeURIComponent(salesItemId)}/returns/`,
+    token,
+    body: payload,
+  })
+}
+
+export async function apiListPendingSalesReturnApprovals(baseUrl: string, token: string) {
+  return requestJson<ApiSalesReturnItem[]>({ baseUrl, method: "GET", path: "/purchases/sales-returns/pending-approvals/", token })
+}
+
+export async function apiGetSalesReturn(baseUrl: string, token: string, salesReturnId: string) {
+  return requestJson<ApiSalesReturnItem>({
+    baseUrl,
+    method: "GET",
+    path: `/purchases/sales-returns/${encodeURIComponent(salesReturnId)}/`,
+    token,
+  })
+}
+
+export async function apiGetSalesReturnApprovalStatus(baseUrl: string, token: string, salesReturnId: string) {
+  return requestJson<ApiSalesReturnApprovalStatusResponse>({
+    baseUrl,
+    method: "GET",
+    path: `/purchases/sales-returns/${encodeURIComponent(salesReturnId)}/approval-status/`,
+    token,
+  })
+}
+
+export async function apiApproveSalesReturn(baseUrl: string, token: string, salesReturnId: string, reason?: string) {
+  return requestJson<ApiSalesReturnApproveResponse>({
+    baseUrl,
+    method: "POST",
+    path: `/purchases/sales-returns/${encodeURIComponent(salesReturnId)}/approve/`,
+    token,
+    body: reason ? { reason } : {},
+  })
+}
+
+export async function apiRejectSalesReturn(baseUrl: string, token: string, salesReturnId: string, reason: string) {
+  return requestJson<ApiSalesReturnRejectResponse>({
+    baseUrl,
+    method: "POST",
+    path: `/purchases/sales-returns/${encodeURIComponent(salesReturnId)}/reject/`,
     token,
     body: { reason },
   })

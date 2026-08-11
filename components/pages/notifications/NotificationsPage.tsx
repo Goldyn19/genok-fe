@@ -7,7 +7,10 @@ import { CheckCircle, XCircle, Clock, Eye, ChevronRight, Pencil } from "lucide-r
 
 import {
   apiApprovePurchase,
+  apiApproveSalesReturn,
   apiGetPurchaseDetail,
+  apiGetSalesReturn,
+  apiGetSalesReturnApprovalStatus,
   apiListLocations,
   apiListMyPurchasesPage,
   apiListMyActionsPage,
@@ -16,8 +19,10 @@ import {
   apiGetSalesItem,
   apiListMySalesItems,
   apiListPendingSalesApprovals,
+  apiListPendingSalesReturnApprovals,
   apiRejectPurchase,
   apiApproveSalesItem,
+  apiRejectSalesReturn,
   apiRejectSalesItem,
   apiRevokeMyAction,
   apiUpdatePurchase,
@@ -30,6 +35,9 @@ import {
   type ApiSalesApprovalChainItem,
   type ApiSalesApprovalStatusResponse,
   type ApiSalesItem,
+  type ApiSalesReturnApprovalChainItem,
+  type ApiSalesReturnApprovalStatusResponse,
+  type ApiSalesReturnItem,
 } from "@/lib/api"
 import { formatCurrency } from "@/lib/metrics"
 import { getErrorMessage } from "@/lib/rbacUtils"
@@ -62,7 +70,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 
-type TabKey = "purchase-pending" | "purchase-my" | "sales-pending" | "sales-my" | "my-actions"
+type TabKey = "purchase-pending" | "purchase-my" | "sales-pending" | "return-pending" | "sales-my" | "my-actions"
 type PurchaseEditDraft = {
   name: string
   part_number: string
@@ -110,6 +118,12 @@ function salesProgress(item: ApiSalesItem) {
 
 function salesTimestamp(item: Pick<ApiSalesItem, "sold_at" | "created_at">) {
   return item.sold_at || item.created_at
+}
+
+function salesReturnProgress(item: ApiSalesReturnItem) {
+  const total = item.approvals.length
+  const done = item.approvals.filter((a) => a.status === "confirmed").length
+  return total > 0 ? Math.round((done / total) * 100) : 0
 }
 
 function canEditPurchase(item: ApiPurchaseListItem) {
@@ -257,7 +271,7 @@ function ApprovalStepRow({ step }: { step: ApiApprovalStep }) {
   )
 }
 
-function SalesChainStepRow({ step }: { step: ApiSalesApprovalChainItem }) {
+function SalesChainStepRow({ step }: { step: ApiSalesApprovalChainItem | ApiSalesReturnApprovalChainItem }) {
   const done = step.status === "confirmed"
   const rejected = step.status === "failed"
   return (
@@ -323,12 +337,16 @@ export function NotificationsPage() {
   const [myRequestsError, setMyRequestsError] = useState<string | null>(null)
 
   const [salesPending, setSalesPending] = useState<ApiSalesItem[]>([])
+  const [returnPending, setReturnPending] = useState<ApiSalesReturnItem[]>([])
   const [salesMy, setSalesMy] = useState<ApiSalesItem[]>([])
   const [salesPendingLoading, setSalesPendingLoading] = useState(false)
+  const [returnPendingLoading, setReturnPendingLoading] = useState(false)
   const [salesMyLoading, setSalesMyLoading] = useState(true)
   const [salesPendingError, setSalesPendingError] = useState<string | null>(null)
+  const [returnPendingError, setReturnPendingError] = useState<string | null>(null)
   const [salesMyError, setSalesMyError] = useState<string | null>(null)
   const [salesPendingLoaded, setSalesPendingLoaded] = useState(false)
+  const [returnPendingLoaded, setReturnPendingLoaded] = useState(false)
 
   const [pendingFilterInput, setPendingFilterInput] = useState("")
   const [pendingFilter, setPendingFilter] = useState("")
@@ -349,6 +367,11 @@ export function NotificationsPage() {
   const [salesStatus, setSalesStatus] = useState<ApiSalesApprovalStatusResponse | null>(null)
   const [salesDetailLoading, setSalesDetailLoading] = useState(false)
   const [salesDetailError, setSalesDetailError] = useState<string | null>(null)
+  const [selectedSalesReturnId, setSelectedSalesReturnId] = useState<string | null>(null)
+  const [salesReturnDetail, setSalesReturnDetail] = useState<ApiSalesReturnItem | null>(null)
+  const [salesReturnStatus, setSalesReturnStatus] = useState<ApiSalesReturnApprovalStatusResponse | null>(null)
+  const [salesReturnDetailLoading, setSalesReturnDetailLoading] = useState(false)
+  const [salesReturnDetailError, setSalesReturnDetailError] = useState<string | null>(null)
 
   const [salesApproveOpen, setSalesApproveOpen] = useState(false)
   const [salesRejectOpen, setSalesRejectOpen] = useState(false)
@@ -356,6 +379,12 @@ export function NotificationsPage() {
   const [salesActionError, setSalesActionError] = useState<string | null>(null)
   const [salesApproveReason, setSalesApproveReason] = useState("")
   const [salesRejectReason, setSalesRejectReason] = useState("")
+  const [salesReturnApproveOpen, setSalesReturnApproveOpen] = useState(false)
+  const [salesReturnRejectOpen, setSalesReturnRejectOpen] = useState(false)
+  const [salesReturnActionLoading, setSalesReturnActionLoading] = useState(false)
+  const [salesReturnActionError, setSalesReturnActionError] = useState<string | null>(null)
+  const [salesReturnApproveReason, setSalesReturnApproveReason] = useState("")
+  const [salesReturnRejectReason, setSalesReturnRejectReason] = useState("")
 
   const [approveOpen, setApproveOpen] = useState(false)
   const [rejectOpen, setRejectOpen] = useState(false)
@@ -485,6 +514,21 @@ export function NotificationsPage() {
     }
   }, [apiBaseUrl, canCallApi, token])
 
+  const loadReturnPending = useCallback(async () => {
+    if (!canCallApi) return
+    try {
+      setReturnPendingLoading(true)
+      setReturnPendingError(null)
+      const data = await apiListPendingSalesReturnApprovals(apiBaseUrl, token as string)
+      setReturnPending(data)
+      setReturnPendingLoaded(true)
+    } catch (e) {
+      setReturnPendingError(getErrorMessage(e, "Failed to load pending return approvals"))
+    } finally {
+      setReturnPendingLoading(false)
+    }
+  }, [apiBaseUrl, canCallApi, token])
+
   useEffect(() => {
     if (!canCallApi) return
     let cancelled = false
@@ -516,8 +560,8 @@ export function NotificationsPage() {
   }, [apiBaseUrl, canCallApi, pendingFilter, pendingPage, token])
 
   useEffect(() => {
-    setPendingApprovalCount(pendingCount + salesPending.length)
-  }, [pendingCount, salesPending.length, setPendingApprovalCount])
+    setPendingApprovalCount(pendingCount + salesPending.length + returnPending.length)
+  }, [pendingCount, returnPending.length, salesPending.length, setPendingApprovalCount])
 
   useEffect(() => {
     if (!canCallApi) return
@@ -525,6 +569,13 @@ export function NotificationsPage() {
     if (salesPendingLoaded) return
     void loadSalesPending()
   }, [activeTab, canCallApi, loadSalesPending, salesPendingLoaded])
+
+  useEffect(() => {
+    if (!canCallApi) return
+    if (activeTab !== "return-pending") return
+    if (returnPendingLoaded) return
+    void loadReturnPending()
+  }, [activeTab, canCallApi, loadReturnPending, returnPendingLoaded])
 
   useEffect(() => {
     if (!canCallApi) return
@@ -736,6 +787,30 @@ export function NotificationsPage() {
     [apiBaseUrl, canCallApi, token]
   )
 
+  const loadSalesReturnDetail = useCallback(
+    async (id: string) => {
+      if (!canCallApi) return
+      try {
+        setSalesReturnDetailLoading(true)
+        setSalesReturnDetailError(null)
+        const [d, s] = await Promise.all([
+          apiGetSalesReturn(apiBaseUrl, token as string, id),
+          apiGetSalesReturnApprovalStatus(apiBaseUrl, token as string, id),
+        ])
+        setSalesReturnDetail(d)
+        setSalesReturnStatus(s)
+        setSelectedSalesReturnId(id)
+      } catch (e) {
+        setSalesReturnDetailError(getErrorMessage(e, "Failed to load return details"))
+        setSalesReturnDetail(null)
+        setSalesReturnStatus(null)
+      } finally {
+        setSalesReturnDetailLoading(false)
+      }
+    },
+    [apiBaseUrl, canCallApi, token]
+  )
+
   const startEditPurchase = useCallback(
     async (purchaseId: number) => {
       if (!canCallApi) return
@@ -859,6 +934,46 @@ export function NotificationsPage() {
     }
   }
 
+  const handleSalesReturnApprove = async () => {
+    if (!selectedSalesReturnId || !canCallApi) return
+    setSalesReturnActionLoading(true)
+    setSalesReturnActionError(null)
+    try {
+      const tokenStr = token as string
+      await apiApproveSalesReturn(apiBaseUrl, tokenStr, selectedSalesReturnId, salesReturnApproveReason || undefined)
+      setSalesReturnApproveOpen(false)
+      setSalesReturnApproveReason("")
+      await loadReturnPending()
+      await loadSalesReturnDetail(selectedSalesReturnId)
+    } catch (e) {
+      setSalesReturnActionError(getErrorMessage(e, "Failed to approve return request"))
+    } finally {
+      setSalesReturnActionLoading(false)
+    }
+  }
+
+  const handleSalesReturnReject = async () => {
+    if (!selectedSalesReturnId || !canCallApi) return
+    if (!salesReturnRejectReason.trim()) {
+      setSalesReturnActionError("Rejection reason is required")
+      return
+    }
+    setSalesReturnActionLoading(true)
+    setSalesReturnActionError(null)
+    try {
+      const tokenStr = token as string
+      await apiRejectSalesReturn(apiBaseUrl, tokenStr, selectedSalesReturnId, salesReturnRejectReason.trim())
+      setSalesReturnRejectOpen(false)
+      setSalesReturnRejectReason("")
+      await loadReturnPending()
+      await loadSalesReturnDetail(selectedSalesReturnId)
+    } catch (e) {
+      setSalesReturnActionError(getErrorMessage(e, "Failed to reject return request"))
+    } finally {
+      setSalesReturnActionLoading(false)
+    }
+  }
+
   const handleReject = async () => {
     if (!actionPurchaseId || !canCallApi) return
     if (!rejectReason.trim()) {
@@ -903,6 +1018,11 @@ export function NotificationsPage() {
         const salesPendingUpdated = await apiListPendingSalesApprovals(apiBaseUrl, tokenStr)
         setSalesPending(salesPendingUpdated)
         setSalesPendingLoaded(true)
+      }
+      if (selectedMyAction.type === "sale_return" || returnPendingLoaded) {
+        const returnPendingUpdated = await apiListPendingSalesReturnApprovals(apiBaseUrl, tokenStr)
+        setReturnPending(returnPendingUpdated)
+        setReturnPendingLoaded(true)
       }
     } catch (e) {
       setRevokeError(getErrorMessage(e, "Failed to change decision"))
@@ -985,10 +1105,14 @@ export function NotificationsPage() {
 
   const selectedPending = pending.find((p) => p.id === actionPurchaseId)
   const selectedSalesPending = salesPending.find((s) => s.id === selectedSalesId)
+  const selectedReturnPending = returnPending.find((r) => r.id === selectedSalesReturnId)
+  const selectedSalesReturnActionItem =
+    selectedReturnPending ?? (salesReturnDetail?.id === selectedSalesReturnId ? salesReturnDetail : null)
 
   const purchasePendingCount = pendingCount
   const salesPendingCount = salesPending.length
-  const totalPendingCount = purchasePendingCount + salesPendingCount
+  const returnPendingCount = returnPending.length
+  const totalPendingCount = purchasePendingCount + salesPendingCount + returnPendingCount
 
   return (
     <div className="space-y-6">
@@ -996,7 +1120,7 @@ export function NotificationsPage() {
         <div>
           <h1 className="text-xl font-semibold text-foreground">Notifications</h1>
           <p className="text-sm text-muted-foreground">
-            Approve or reject purchase and sales requests, and track the status of your own requests.
+            Approve or reject purchase, sale, and return requests, and track the status of your own requests.
           </p>
         </div>
         {totalPendingCount > 0 && (
@@ -1044,6 +1168,21 @@ export function NotificationsPage() {
           {salesPendingCount > 0 && (
             <span className="ml-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-yellow-100 text-xs font-semibold text-yellow-800">
               {salesPendingCount}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => setActiveTab("return-pending")}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors relative ${
+            activeTab === "return-pending"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          Return Approvals
+          {returnPendingCount > 0 && (
+            <span className="ml-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-yellow-100 text-xs font-semibold text-yellow-800">
+              {returnPendingCount}
             </span>
           )}
         </button>
@@ -1529,6 +1668,11 @@ export function NotificationsPage() {
                                 <Eye className="h-4 w-4" />
                               </Button>
                             )}
+                            {a.type === "sale_return" && (
+                              <Button size="sm" variant="ghost" onClick={() => loadSalesReturnDetail(a.object_id as string)}>
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                            )}
                             <Button
                               size="sm"
                               variant="outline"
@@ -1646,6 +1790,104 @@ export function NotificationsPage() {
                               onClick={() => {
                                 setSelectedSalesId(s.id)
                                 setSalesRejectOpen(true)
+                              }}
+                            >
+                              <XCircle className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {activeTab === "return-pending" && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Return Approvals</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {returnPendingLoading && (
+              <p className="text-sm text-muted-foreground py-8 text-center">Loading...</p>
+            )}
+            {returnPendingError && (
+              <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                {returnPendingError}
+              </div>
+            )}
+            {!returnPendingLoading && !returnPendingError && returnPending.length === 0 && (
+              <p className="text-sm text-muted-foreground py-8 text-center">
+                No pending return approvals.
+              </p>
+            )}
+            {!returnPendingLoading && !returnPendingError && returnPending.length > 0 && (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>ID</TableHead>
+                    <TableHead>Part</TableHead>
+                    <TableHead>Part Number</TableHead>
+                    <TableHead>Qty</TableHead>
+                    <TableHead>Return Reason</TableHead>
+                    <TableHead>Progress</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {returnPending.map((r) => {
+                    const progress = salesReturnProgress(r)
+                    return (
+                      <TableRow key={r.id}>
+                        <TableCell className="font-mono text-xs">{r.id}</TableCell>
+                        <TableCell>{r.part_name || "Sales item"}</TableCell>
+                        <TableCell className="font-mono text-xs">{r.part_number || "—"}</TableCell>
+                        <TableCell>{r.quantity}</TableCell>
+                        <TableCell className="max-w-[220px] truncate">{r.reason}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-primary rounded-full transition-all"
+                                style={{ width: `${progress}%` }}
+                              />
+                            </div>
+                            <span className="text-xs text-muted-foreground">{progress}%</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {new Date(r.created_at).toLocaleDateString()}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => loadSalesReturnDetail(r.id)}
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              className="bg-green-600 hover:bg-green-700 text-white"
+                              onClick={() => {
+                                setSelectedSalesReturnId(r.id)
+                                setSalesReturnApproveOpen(true)
+                              }}
+                            >
+                              <CheckCircle className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => {
+                                setSelectedSalesReturnId(r.id)
+                                setSalesReturnRejectOpen(true)
                               }}
                             >
                               <XCircle className="h-4 w-4" />
@@ -2211,6 +2453,140 @@ export function NotificationsPage() {
         </SheetContent>
       </Sheet>
 
+      <Sheet open={selectedSalesReturnId !== null} onOpenChange={(open) => !open && setSelectedSalesReturnId(null)}>
+        <SheetContent className="sm:max-w-lg overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>Return Request {selectedSalesReturnId}</SheetTitle>
+          </SheetHeader>
+
+          {salesReturnDetailLoading && (
+            <div className="py-8 text-center text-sm text-muted-foreground">Loading details...</div>
+          )}
+
+          {salesReturnDetailError && (
+            <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 mt-4">
+              {salesReturnDetailError}
+            </div>
+          )}
+
+          {salesReturnDetail && salesReturnStatus && !salesReturnDetailLoading && !salesReturnDetailError && (
+            <div className="mt-6 space-y-6">
+              <div className="rounded-lg border bg-muted/20 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Return Summary</p>
+                    <h3 className="text-lg font-semibold leading-tight text-foreground">
+                      {salesReturnDetail.part_name || "Sales item"}
+                    </h3>
+                    <p className="font-mono text-sm text-muted-foreground">{salesReturnDetail.part_number || "—"}</p>
+                  </div>
+                  <Badge variant="outline" className={statusColor(salesReturnStatus.status)}>
+                    {salesReturnStatus.status}
+                  </Badge>
+                </div>
+
+                <div className="mt-4 grid grid-cols-2 gap-3">
+                  <div className="rounded-md border bg-background p-3">
+                    <p className="text-xs text-muted-foreground">Return Quantity</p>
+                    <p className="mt-1 text-xl font-semibold text-foreground">{salesReturnDetail.quantity}</p>
+                  </div>
+                  <div className="rounded-md border bg-background p-3">
+                    <p className="text-xs text-muted-foreground">Approval Progress</p>
+                    <p className="mt-1 text-xl font-semibold text-foreground">{salesReturnStatus.progress_percentage}%</p>
+                  </div>
+                </div>
+
+                <p className="mt-4 text-xs text-muted-foreground">
+                  Stock is added back only after the final return approval.
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                <h3 className="text-sm font-semibold text-foreground">Details</h3>
+                <div className="grid grid-cols-2 gap-4 rounded-lg border p-4 text-sm">
+                  <div className="col-span-2">
+                    <p className="text-xs text-muted-foreground">Reason</p>
+                    <p className="mt-1 font-medium whitespace-pre-wrap">{salesReturnDetail.reason}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Status</p>
+                    <p className="mt-1 font-medium capitalize">{salesReturnStatus.status}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Current Step</p>
+                    <p className="mt-1 font-medium">{salesReturnStatus.current_step ?? "Completed"}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Requested By</p>
+                    <p className="mt-1 font-medium">
+                      {salesReturnDetail.returned_by_details?.full_name ||
+                        salesReturnDetail.returned_by_details?.email ||
+                        "—"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Sold At</p>
+                    <p className="mt-1 font-medium">
+                      {salesReturnStatus.sold_at ? new Date(salesReturnStatus.sold_at).toLocaleString() : "—"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Requested At</p>
+                    <p className="mt-1 font-medium">{new Date(salesReturnStatus.created_at).toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Sales Item</p>
+                    <p className="mt-1 font-mono">{salesReturnStatus.sales_item_id}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-sm font-semibold mb-3">Approval Chain</h3>
+                <div className="space-y-4">
+                  {salesReturnStatus.approval_chain.map((step) => (
+                    <SalesChainStepRow key={step.step} step={step} />
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                {salesReturnStatus.can_approve && (
+                  <>
+                    <Button
+                      className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                      onClick={() => {
+                        setSalesReturnActionError(null)
+                        setSalesReturnApproveOpen(true)
+                      }}
+                    >
+                      <CheckCircle className="h-4 w-4 mr-1" />
+                      Approve
+                    </Button>
+                    <Button
+                      className="flex-1"
+                      variant="destructive"
+                      onClick={() => {
+                        setSalesReturnActionError(null)
+                        setSalesReturnRejectOpen(true)
+                      }}
+                    >
+                      <XCircle className="h-4 w-4 mr-1" />
+                      Reject
+                    </Button>
+                  </>
+                )}
+                {!salesReturnStatus.can_approve && salesReturnStatus.status === "pending" && (
+                  <p className="text-sm text-muted-foreground text-center w-full py-2">
+                    Waiting for your turn in the return approval chain.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
+
       <Dialog open={salesApproveOpen} onOpenChange={setSalesApproveOpen}>
         <DialogContent>
           <DialogHeader>
@@ -2295,6 +2671,126 @@ export function NotificationsPage() {
               disabled={salesActionLoading}
             >
               {salesActionLoading ? "Rejecting..." : "Confirm Rejection"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={salesReturnApproveOpen}
+        onOpenChange={(open) => {
+          setSalesReturnApproveOpen(open)
+          if (!open) {
+            setSalesReturnApproveReason("")
+            setSalesReturnActionError(null)
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Approve Return Request</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to approve this return request?
+              {selectedSalesReturnActionItem && (
+                <span className="block mt-1">
+                  <strong>{selectedSalesReturnActionItem.part_name || "Sales item"}</strong> -{" "}
+                  {selectedSalesReturnActionItem.part_number || "—"} - Qty: {selectedSalesReturnActionItem.quantity}
+                </span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Reason (optional)</label>
+            <Input
+              placeholder="Add a note for your approval..."
+              value={salesReturnApproveReason}
+              onChange={(e) => setSalesReturnApproveReason(e.target.value)}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Stock is added back only after the final return approval is completed.
+          </p>
+          {salesReturnActionError && (
+            <div className="rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-700">
+              {salesReturnActionError}
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setSalesReturnApproveOpen(false)
+                setSalesReturnApproveReason("")
+                setSalesReturnActionError(null)
+              }}
+              disabled={salesReturnActionLoading}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="bg-green-600 hover:bg-green-700 text-white"
+              onClick={handleSalesReturnApprove}
+              disabled={salesReturnActionLoading}
+            >
+              {salesReturnActionLoading ? "Approving..." : "Confirm Approval"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={salesReturnRejectOpen}
+        onOpenChange={(open) => {
+          setSalesReturnRejectOpen(open)
+          if (!open) {
+            setSalesReturnRejectReason("")
+            setSalesReturnActionError(null)
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reject Return Request</DialogTitle>
+            <DialogDescription>
+              Please provide a reason for rejecting this return request.
+              {selectedSalesReturnActionItem && (
+                <span className="block mt-1">
+                  <strong>{selectedSalesReturnActionItem.part_name || "Sales item"}</strong>
+                </span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Rejection Reason *</label>
+            <Input
+              placeholder="Why are you rejecting this return request?"
+              value={salesReturnRejectReason}
+              onChange={(e) => setSalesReturnRejectReason(e.target.value)}
+            />
+          </div>
+          {salesReturnActionError && (
+            <div className="rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-700">
+              {salesReturnActionError}
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setSalesReturnRejectOpen(false)
+                setSalesReturnRejectReason("")
+                setSalesReturnActionError(null)
+              }}
+              disabled={salesReturnActionLoading}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleSalesReturnReject}
+              disabled={salesReturnActionLoading}
+            >
+              {salesReturnActionLoading ? "Rejecting..." : "Confirm Rejection"}
             </Button>
           </DialogFooter>
         </DialogContent>

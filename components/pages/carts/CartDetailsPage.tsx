@@ -10,6 +10,7 @@ import {
   apiAddItemToCart,
   apiCheckoutCart,
   apiCreateCreditCustomer,
+  apiCreateSalesReturn,
   apiListCreditCustomers,
   apiGetCart,
   apiRemoveCartItem,
@@ -20,6 +21,7 @@ import {
   getApiBaseUrl,
   type ApiCart,
   type ApiCreditCustomer,
+  type ApiSalesItem,
   type ApiStock,
   type RbacUser,
 } from "@/lib/api"
@@ -76,6 +78,52 @@ function userLabel(user: RbacUser) {
   return user.full_name?.trim() || user.email || user.username
 }
 
+function salesItemStatusLabel(status: ApiSalesItem["status"]) {
+  switch (status) {
+    case "approved":
+      return "Approved"
+    case "rejected":
+      return "Rejected"
+    default:
+      return "Pending"
+  }
+}
+
+function salesItemStatusVariant(status: ApiSalesItem["status"]): "default" | "secondary" | "danger" {
+  switch (status) {
+    case "approved":
+      return "default"
+    case "rejected":
+      return "danger"
+    default:
+      return "secondary"
+  }
+}
+
+function salesReturnStatusLabel(status: ApiSalesItem["returns"][number]["status"]) {
+  switch (status) {
+    case "approved":
+      return "Approved"
+    case "rejected":
+      return "Rejected"
+    default:
+      return "Pending"
+  }
+}
+
+function salesReturnStatusVariant(
+  status: ApiSalesItem["returns"][number]["status"]
+): "default" | "secondary" | "danger" {
+  switch (status) {
+    case "approved":
+      return "default"
+    case "rejected":
+      return "danger"
+    default:
+      return "secondary"
+  }
+}
+
 export function CartDetailsPage() {
   const params = useParams<{ cartId: string }>()
   const cartId = params.cartId
@@ -119,6 +167,12 @@ export function CartDetailsPage() {
   const [addQty, setAddQty] = useState(1)
   const [addUnitPrice, setAddUnitPrice] = useState<number>(0)
   const [adding, setAdding] = useState(false)
+  const [returnOpen, setReturnOpen] = useState(false)
+  const [returningItem, setReturningItem] = useState<ApiSalesItem | null>(null)
+  const [returnQty, setReturnQty] = useState(1)
+  const [returnReason, setReturnReason] = useState("")
+  const [returning, setReturning] = useState(false)
+  const [returnError, setReturnError] = useState<string | null>(null)
 
   useEffect(() => {
     if (sessionStatus === "loading") return
@@ -163,6 +217,24 @@ export function CartDetailsPage() {
     setAddUnitPrice(0)
     setAdding(false)
   }, [addOpen])
+
+  useEffect(() => {
+    if (!returnOpen) {
+      setReturningItem(null)
+      setReturnQty(1)
+      setReturnReason("")
+      setReturnError(null)
+      setReturning(false)
+      return
+    }
+
+    setReturnError(null)
+    setReturning(false)
+    setReturnQty((prev) => {
+      const maxQty = returningItem?.remaining_requestable_return_quantity ?? 1
+      return Math.min(Math.max(prev, 1), Math.max(maxQty, 1))
+    })
+  }, [returnOpen, returningItem])
 
   useEffect(() => {
     if (!checkoutOpen) return
@@ -292,6 +364,7 @@ export function CartDetailsPage() {
   }, [cart])
 
   const salesOrder = cart?.sales_order ?? null
+  const salesItems = salesOrder?.items ?? []
 
   const canEdit = cart ? !cart.is_checked_out : false
   const canCheckout = cart ? !cart.is_checked_out && cart.items.length > 0 : false
@@ -538,6 +611,111 @@ export function CartDetailsPage() {
                   </TableBody>
                 </Table>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between gap-3">
+                <CardTitle className="text-base">Sold Items & Returns</CardTitle>
+                {salesOrder ? <Badge variant="outline">{salesItems.length} sold items</Badge> : null}
+              </div>
+            </CardHeader>
+            <CardContent>
+              {!salesOrder ? (
+                <div className="text-sm text-muted-foreground">Returns become available after checkout and approval.</div>
+              ) : salesItems.length === 0 ? (
+                <div className="text-sm text-muted-foreground">No sales items found for this cart.</div>
+              ) : (
+                <div className="rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Item</TableHead>
+                        <TableHead className="w-[140px]">Status</TableHead>
+                        <TableHead className="w-[120px]">Qty</TableHead>
+                        <TableHead className="w-[140px]">Returned</TableHead>
+                        <TableHead className="w-[140px]">Amount</TableHead>
+                        <TableHead className="w-[140px]"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {salesItems.map((item) => (
+                        <TableRow key={item.id}>
+                          <TableCell>
+                            <div className="space-y-1">
+                              <div className="text-sm font-medium text-foreground">{item.part_name}</div>
+                              <div className="text-xs text-muted-foreground">{item.part_number}</div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Badge variant={salesItemStatusVariant(item.status)}>{salesItemStatusLabel(item.status)}</Badge>
+                                <Badge variant="outline">{item.approvals.filter((step) => step.status === "confirmed").length}/{item.approvals.length} approvals</Badge>
+                                {item.is_fully_returned ? <Badge variant="outline">Fully returned</Badge> : null}
+                              </div>
+                              {item.returns.length > 0 ? (
+                                <div className="space-y-1 pt-1">
+                                  {item.returns.map((record) => (
+                                    <div key={record.id} className="rounded-md border bg-muted/20 px-2 py-1 text-xs text-muted-foreground">
+                                      <span className="mr-2 inline-flex align-middle">
+                                        <Badge variant={salesReturnStatusVariant(record.status)}>{salesReturnStatusLabel(record.status)}</Badge>
+                                      </span>
+                                      Return request for {record.quantity} on {formatDateTime(record.created_at)}
+                                      {record.returned_by_details?.full_name ? ` by ${record.returned_by_details.full_name}` : ""}
+                                      {record.reason ? ` - ${record.reason}` : ""}
+                                      {record.approvals.length > 0
+                                        ? ` (${record.approvals.filter((step) => step.status === "confirmed").length}/${record.approvals.length} approvals)`
+                                        : ""}
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="space-y-1 text-sm">
+                              <div className="font-medium text-foreground">{salesItemStatusLabel(item.status)}</div>
+                              <div className="text-xs text-muted-foreground">
+                                Sold {formatDateTime(item.sold_at)}
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-sm tabular-nums">{item.quantity}</TableCell>
+                          <TableCell>
+                            <div className="space-y-1 text-sm">
+                              <div className="font-medium tabular-nums text-foreground">{item.returned_quantity} approved</div>
+                              <div className="text-xs text-muted-foreground">{item.pending_return_quantity} pending</div>
+                              <div className="text-xs text-muted-foreground">
+                                {item.remaining_requestable_return_quantity} still requestable
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="space-y-1 text-sm">
+                              <div className="tabular-nums text-muted-foreground">{formatMoney(item.unit_price)}</div>
+                              <div className="font-medium tabular-nums text-foreground">{formatMoney(item.total_price)}</div>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={!["pending", "approved"].includes(item.status) || item.remaining_requestable_return_quantity <= 0}
+                              onClick={() => {
+                                setReturningItem(item)
+                                setReturnQty(1)
+                                setReturnReason("")
+                                setReturnError(null)
+                                setReturnOpen(true)
+                              }}
+                            >
+                              Return item
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -992,6 +1170,114 @@ export function CartDetailsPage() {
               }}
             >
               {adding ? "Adding…" : "Add item"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={returnOpen} onOpenChange={setReturnOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Create return request</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {!returningItem ? null : (
+              <>
+                <div className="rounded-md border bg-card p-3">
+                  <div className="text-sm font-medium text-foreground">{returningItem.part_name}</div>
+                  <div className="text-xs text-muted-foreground">{returningItem.part_number}</div>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <div className="text-sm text-muted-foreground">Quantity sold</div>
+                    <div className="text-sm font-medium text-foreground tabular-nums">{returningItem.quantity}</div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-sm text-muted-foreground">Available to request</div>
+                    <div className="text-sm font-medium text-foreground tabular-nums">{returningItem.remaining_requestable_return_quantity}</div>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="text-sm text-muted-foreground">Return quantity</div>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={Math.max(returningItem.remaining_requestable_return_quantity, 1)}
+                    step={1}
+                    value={String(returnQty)}
+                    onChange={(e) => {
+                      const raw = Number(e.target.value)
+                      const next = Number.isFinite(raw) ? Math.floor(raw) : 1
+                      setReturnQty(Math.min(Math.max(next, 1), Math.max(returningItem.remaining_requestable_return_quantity, 1)))
+                      setReturnError(null)
+                    }}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <div className="text-sm text-muted-foreground">Reason</div>
+                  <Input
+                    value={returnReason}
+                    onChange={(e) => {
+                      setReturnReason(e.target.value)
+                      setReturnError(null)
+                    }}
+                    placeholder="Why is this item being returned?"
+                  />
+                </div>
+              </>
+            )}
+
+            {returnError && <div className="text-sm text-red-600">{returnError}</div>}
+            <div className="text-xs text-muted-foreground">
+              This creates a return request. Stock is added back only after the final return approval.
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" disabled={returning} onClick={() => setReturnOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              className="gap-2"
+              disabled={!token || !returningItem || returning}
+              onClick={async () => {
+                if (!token || !returningItem) return
+                const reason = returnReason.trim()
+                if (!reason) {
+                  setReturnError("Return reason is required")
+                  return
+                }
+                if (returnQty < 1 || returnQty > returningItem.remaining_requestable_return_quantity) {
+                  setReturnError(`Return quantity must be between 1 and ${returningItem.remaining_requestable_return_quantity}`)
+                  return
+                }
+
+                try {
+                  setReturning(true)
+                  setReturnError(null)
+                  await apiCreateSalesReturn(apiBaseUrl, token, returningItem.id, {
+                    quantity: returnQty,
+                    reason,
+                  })
+                  const updated = await apiGetCart(apiBaseUrl, token, cart.id)
+                  setCart(updated)
+                  setCustomerName(updated.customer_name)
+                  setReturnOpen(false)
+                } catch (e) {
+                  const message =
+                    typeof e === "object" && e != null && "message" in e && typeof (e as { message?: unknown }).message === "string"
+                      ? ((e as { message?: unknown }).message as string)
+                      : "Failed to return item"
+                  setReturnError(message)
+                } finally {
+                  setReturning(false)
+                }
+              }}
+            >
+              {returning ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Submit request
             </Button>
           </DialogFooter>
         </DialogContent>
