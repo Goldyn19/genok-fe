@@ -340,10 +340,26 @@ export function PartsPage() {
                     <div className="font-medium text-foreground">{selected.part_name}</div>
                     <div className="text-muted-foreground">{selected.part_number}</div>
                   </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground">Brand</div>
+                        <div className="font-medium text-foreground">
+                          {selected.kind === "purchase"
+                            ? (purchaseDetail?.brand ?? "—")
+                            : (salesDetail?.brand ?? "—")}
+                        </div>
+                      </div>
                   <div>
                     <div className="text-xs text-muted-foreground">Status</div>
                     <Badge variant={statusBadgeVariant(selected.status)}>{selected.status}</Badge>
                   </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground">Original</div>
+                        <div className="font-medium text-foreground">
+                          {selected.kind === "purchase"
+                            ? (purchaseDetail?.is_original === true ? "Yes" : purchaseDetail?.is_original === false ? "No" : "—")
+                            : (salesDetail?.is_original === true ? "Yes" : salesDetail?.is_original === false ? "No" : "—")}
+                        </div>
+                      </div>
                   <div>
                     <div className="text-xs text-muted-foreground">Location</div>
                     <div className="font-medium text-foreground">{selected.location}</div>
