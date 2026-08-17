@@ -1798,6 +1798,7 @@ export function NotificationsPage() {
                     <TableHead>ID</TableHead>
                     <TableHead>Part</TableHead>
                     <TableHead>Part Number</TableHead>
+                    <TableHead>Sold To</TableHead>
                     <TableHead>Qty</TableHead>
                     <TableHead>Unit Price</TableHead>
                     <TableHead>Total</TableHead>
@@ -1814,6 +1815,7 @@ export function NotificationsPage() {
                         <TableCell className="font-mono text-xs">{s.id}</TableCell>
                         <TableCell>{s.part_name}</TableCell>
                         <TableCell className="font-mono text-xs">{s.part_number}</TableCell>
+                        <TableCell className="max-w-[220px] truncate">{s.sold_to || "—"}</TableCell>
                         <TableCell>{s.quantity}</TableCell>
                         <TableCell>{formatCurrency(s.unit_price)}</TableCell>
                         <TableCell>{formatCurrency(s.total_price)}</TableCell>

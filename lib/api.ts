@@ -378,6 +378,7 @@ export type ApiSalesItem = {
   part_number: string
   brand?: string | null
   is_original?: boolean | null
+  sold_to?: string | null
   quantity: number
   unit_price: number
   total_price: number
