@@ -1305,8 +1305,11 @@ export async function apiRejectPurchase(baseUrl: string, token: string, purchase
   })
 }
 
-export async function apiListPendingSalesApprovals(baseUrl: string, token: string) {
-  return requestJson<ApiSalesItem[]>({ baseUrl, method: "GET", path: "/purchases/sales-items/pending-approvals/", token })
+export async function apiListPendingSalesApprovals(baseUrl: string, token: string, filters?: { q?: string }) {
+  const qs = new URLSearchParams()
+  if (filters?.q) qs.set("q", filters.q)
+  const suffix = qs.toString() ? `?${qs.toString()}` : ""
+  return requestJson<ApiSalesItem[]>({ baseUrl, method: "GET", path: `/purchases/sales-items/pending-approvals/${suffix}`, token })
 }
 
 export async function apiListMySalesItems(baseUrl: string, token: string) {
@@ -1380,8 +1383,11 @@ export async function apiCreateSalesReturn(
   })
 }
 
-export async function apiListPendingSalesReturnApprovals(baseUrl: string, token: string) {
-  return requestJson<ApiSalesReturnItem[]>({ baseUrl, method: "GET", path: "/purchases/sales-returns/pending-approvals/", token })
+export async function apiListPendingSalesReturnApprovals(baseUrl: string, token: string, filters?: { q?: string }) {
+  const qs = new URLSearchParams()
+  if (filters?.q) qs.set("q", filters.q)
+  const suffix = qs.toString() ? `?${qs.toString()}` : ""
+  return requestJson<ApiSalesReturnItem[]>({ baseUrl, method: "GET", path: `/purchases/sales-returns/pending-approvals/${suffix}`, token })
 }
 
 export async function apiGetSalesReturn(baseUrl: string, token: string, salesReturnId: string) {

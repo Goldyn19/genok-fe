@@ -352,6 +352,10 @@ export function NotificationsPage() {
   const [pendingFilter, setPendingFilter] = useState("")
   const [requestFilter, setRequestFilter] = useState("")
   const [salesFilter, setSalesFilter] = useState("")
+  const [salesPendingFilterInput, setSalesPendingFilterInput] = useState("")
+  const [salesPendingFilter, setSalesPendingFilter] = useState("")
+  const [returnPendingFilterInput, setReturnPendingFilterInput] = useState("")
+  const [returnPendingFilter, setReturnPendingFilter] = useState("")
   const [requestStatusFilter, setRequestStatusFilter] = useState("all")
   const [salesStatusFilter, setSalesStatusFilter] = useState("all")
   const [myActionsFilter, setMyActionsFilter] = useState("")
@@ -435,6 +439,16 @@ export function NotificationsPage() {
     setPendingFilter(pendingFilterInput.trim())
   }, [pendingFilterInput])
 
+  const applySalesPendingFilter = useCallback(() => {
+    setSalesPendingFilter(salesPendingFilterInput.trim())
+    setSalesPendingLoaded(false)
+  }, [salesPendingFilterInput])
+
+  const applyReturnPendingFilter = useCallback(() => {
+    setReturnPendingFilter(returnPendingFilterInput.trim())
+    setReturnPendingLoaded(false)
+  }, [returnPendingFilterInput])
+
   const loadPendingPage = useCallback(
     async (pageNumber: number) => {
       if (!canCallApi) return
@@ -512,7 +526,9 @@ export function NotificationsPage() {
     try {
       setSalesPendingLoading(true)
       setSalesPendingError(null)
-      const data = await apiListPendingSalesApprovals(apiBaseUrl, token as string)
+      const data = await apiListPendingSalesApprovals(apiBaseUrl, token as string, {
+        q: salesPendingFilter || undefined,
+      })
       setSalesPending(data)
       setSalesPendingLoaded(true)
     } catch (e) {
@@ -520,14 +536,16 @@ export function NotificationsPage() {
     } finally {
       setSalesPendingLoading(false)
     }
-  }, [apiBaseUrl, canCallApi, token])
+  }, [apiBaseUrl, canCallApi, salesPendingFilter, token])
 
   const loadReturnPending = useCallback(async () => {
     if (!canCallApi) return
     try {
       setReturnPendingLoading(true)
       setReturnPendingError(null)
-      const data = await apiListPendingSalesReturnApprovals(apiBaseUrl, token as string)
+      const data = await apiListPendingSalesReturnApprovals(apiBaseUrl, token as string, {
+        q: returnPendingFilter || undefined,
+      })
       setReturnPending(data)
       setReturnPendingLoaded(true)
     } catch (e) {
@@ -535,7 +553,7 @@ export function NotificationsPage() {
     } finally {
       setReturnPendingLoading(false)
     }
-  }, [apiBaseUrl, canCallApi, token])
+  }, [apiBaseUrl, canCallApi, returnPendingFilter, token])
 
   useEffect(() => {
     if (!canCallApi) return
@@ -1029,12 +1047,16 @@ export function NotificationsPage() {
       await loadMyActionsPage(myActionsPage)
       await loadPendingPage(pendingPage)
       if (selectedMyAction.type === "sale" || salesPendingLoaded) {
-        const salesPendingUpdated = await apiListPendingSalesApprovals(apiBaseUrl, tokenStr)
+        const salesPendingUpdated = await apiListPendingSalesApprovals(apiBaseUrl, tokenStr, {
+          q: salesPendingFilter || undefined,
+        })
         setSalesPending(salesPendingUpdated)
         setSalesPendingLoaded(true)
       }
       if (selectedMyAction.type === "sale_return" || returnPendingLoaded) {
-        const returnPendingUpdated = await apiListPendingSalesReturnApprovals(apiBaseUrl, tokenStr)
+        const returnPendingUpdated = await apiListPendingSalesReturnApprovals(apiBaseUrl, tokenStr, {
+          q: returnPendingFilter || undefined,
+        })
         setReturnPending(returnPendingUpdated)
         setReturnPendingLoaded(true)
       }
@@ -1742,7 +1764,18 @@ export function NotificationsPage() {
       {activeTab === "sales-pending" && (
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">Sales Approvals</CardTitle>
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <CardTitle className="text-base">Sales Approvals</CardTitle>
+              <Input
+                placeholder="Search by part name/number..."
+                value={salesPendingFilterInput}
+                onChange={(e) => setSalesPendingFilterInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") applySalesPendingFilter()
+                }}
+                className="max-w-xs"
+              />
+            </div>
           </CardHeader>
           <CardContent>
             {salesPendingLoading && (
@@ -1842,7 +1875,18 @@ export function NotificationsPage() {
       {activeTab === "return-pending" && (
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">Return Approvals</CardTitle>
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <CardTitle className="text-base">Return Approvals</CardTitle>
+              <Input
+                placeholder="Search by part, number, reason..."
+                value={returnPendingFilterInput}
+                onChange={(e) => setReturnPendingFilterInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") applyReturnPendingFilter()
+                }}
+                className="max-w-xs"
+              />
+            </div>
           </CardHeader>
           <CardContent>
             {returnPendingLoading && (

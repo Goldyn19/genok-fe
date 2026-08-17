@@ -34,6 +34,7 @@ export function CartsPage() {
   const [carts, setCarts] = useState<ApiCart[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [cartFilter, setCartFilter] = useState("")
 
   const [customerName, setCustomerName] = useState("")
   const [error, setError] = useState<string | null>(null)
@@ -73,8 +74,20 @@ export function CartsPage() {
   }, [apiBaseUrl, router, sessionStatus, token])
 
   const sorted = useMemo(() => {
-    return carts.slice().sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)))
-  }, [carts])
+    const q = cartFilter.trim().toLowerCase()
+    const filtered =
+      !q
+        ? carts
+        : carts.filter((c) => {
+            const status = c.is_checked_out ? "checked out" : "open"
+            return (
+              String(c.id).toLowerCase().includes(q) ||
+              String(c.customer_name).toLowerCase().includes(q) ||
+              status.includes(q)
+            )
+          })
+    return filtered.slice().sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)))
+  }, [cartFilter, carts])
 
   const computeTotal = (c: ApiCart) =>
     c.items.reduce((sum, it) => sum + it.quantity * Number(it.unit_price ?? 0), 0)
@@ -143,7 +156,15 @@ export function CartsPage() {
 
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">Your carts</CardTitle>
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <CardTitle className="text-base">Your carts</CardTitle>
+              <Input
+                value={cartFilter}
+                onChange={(e) => setCartFilter(e.target.value)}
+                placeholder="Search by customer, id, status..."
+                className="max-w-xs"
+              />
+            </div>
           </CardHeader>
           <CardContent>
             {loadError && <div className="mb-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{loadError}</div>}
@@ -169,7 +190,7 @@ export function CartsPage() {
                   {!loading && sorted.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={5} className="py-10 text-center text-sm text-muted-foreground">
-                        No carts yet.
+                        No carts found.
                       </TableCell>
                     </TableRow>
                   )}
