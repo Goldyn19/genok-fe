@@ -2580,6 +2580,12 @@ export function NotificationsPage() {
                     <p className="mt-1 font-medium">{new Date(salesReturnStatus.created_at).toLocaleString()}</p>
                   </div>
                   <div>
+                    <p className="text-xs text-muted-foreground">Returned Date</p>
+                    <p className="mt-1 font-medium">
+                      {salesReturnStatus.returned_at ? new Date(salesReturnStatus.returned_at).toLocaleDateString() : "—"}
+                    </p>
+                  </div>
+                  <div>
                     <p className="text-xs text-muted-foreground">Sales Item</p>
                     <p className="mt-1 font-mono">{salesReturnStatus.sales_item_id}</p>
                   </div>

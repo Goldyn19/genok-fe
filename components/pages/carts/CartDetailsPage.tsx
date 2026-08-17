@@ -171,6 +171,7 @@ export function CartDetailsPage() {
   const [returningItem, setReturningItem] = useState<ApiSalesItem | null>(null)
   const [returnQty, setReturnQty] = useState(1)
   const [returnReason, setReturnReason] = useState("")
+  const [returnDate, setReturnDate] = useState("")
   const [returning, setReturning] = useState(false)
   const [returnError, setReturnError] = useState<string | null>(null)
 
@@ -223,6 +224,7 @@ export function CartDetailsPage() {
       setReturningItem(null)
       setReturnQty(1)
       setReturnReason("")
+      setReturnDate("")
       setReturnError(null)
       setReturning(false)
       return
@@ -703,6 +705,7 @@ export function CartDetailsPage() {
                                 setReturningItem(item)
                                 setReturnQty(1)
                                 setReturnReason("")
+                                setReturnDate("")
                                 setReturnError(null)
                                 setReturnOpen(true)
                               }}
@@ -1227,6 +1230,18 @@ export function CartDetailsPage() {
                     placeholder="Why is this item being returned?"
                   />
                 </div>
+
+                <div className="space-y-2">
+                  <div className="text-sm text-muted-foreground">Returned date</div>
+                  <Input
+                    type="date"
+                    value={returnDate}
+                    onChange={(e) => {
+                      setReturnDate(e.target.value)
+                      setReturnError(null)
+                    }}
+                  />
+                </div>
               </>
             )}
 
@@ -1260,6 +1275,7 @@ export function CartDetailsPage() {
                   await apiCreateSalesReturn(apiBaseUrl, token, returningItem.id, {
                     quantity: returnQty,
                     reason,
+                    returned_at: returnDate || null,
                   })
                   const updated = await apiGetCart(apiBaseUrl, token, cart.id)
                   setCart(updated)

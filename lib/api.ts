@@ -337,6 +337,7 @@ export type ApiSalesReturnItem = {
   stock: string | null
   quantity: number
   reason: string
+  returned_at?: string | null
   returned_by: number | null
   returned_by_details: {
     id: number
@@ -466,6 +467,7 @@ export type ApiSalesReturnApprovalStatusResponse = {
   quantity: number
   reason: string
   created_at: string
+  returned_at?: string | null
   sold_at?: string | null
   approval_chain: ApiSalesReturnApprovalChainItem[]
   can_approve: boolean
@@ -1367,7 +1369,7 @@ export async function apiCreateSalesReturn(
   baseUrl: string,
   token: string,
   salesItemId: string,
-  payload: { quantity: number; reason: string }
+  payload: { quantity: number; reason: string; returned_at?: string | null }
 ) {
   return requestJson<ApiSalesReturnItem>({
     baseUrl,
