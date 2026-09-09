@@ -345,10 +345,12 @@ export function InventoryPage() {
           const tokenStr = token
           if (!apiBaseUrl || !tokenStr) throw new Error("Missing API base URL or auth token")
           if (!selected) throw new Error("No stock selected")
+          const targetLocation = selected.locations[0]
+          if (!targetLocation) throw new Error("This stock has no assigned location. Add a location before using Add Stock.")
           const purchase = await apiCreatePurchase(apiBaseUrl, tokenStr, {
             name: selected.part_name,
             part_number: selected.part_number,
-            location: selected.top_level_location,
+            location: targetLocation,
             price,
             quantity,
             is_new_product: false,

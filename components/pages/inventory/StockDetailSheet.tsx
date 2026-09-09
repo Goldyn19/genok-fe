@@ -95,10 +95,15 @@ export function StockDetailSheet({
               <Button variant="outline" asChild className="flex-1">
                 <Link href={`/parts/${encodeURIComponent(stock.part_number)}`}>View Part</Link>
               </Button>
-              <Button variant="outline" className="flex-1" onClick={onRequestIncrease}>
+              <Button variant="outline" className="flex-1" onClick={onRequestIncrease} disabled={stock.locations.length === 0}>
                 Add Stock
               </Button>
             </div>
+            {stock.locations.length === 0 && (
+              <div className="text-xs text-muted-foreground">
+                Add Stock is unavailable until this stock has at least one assigned location.
+              </div>
+            )}
             <Button className="w-full" onClick={onEdit}>
               Edit Details
             </Button>
