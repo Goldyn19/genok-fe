@@ -115,6 +115,7 @@ export function InventoryPage() {
   const [stockDialogOpen, setStockDialogOpen] = useState(false)
   const [locationDialogOpen, setLocationDialogOpen] = useState(false)
   const [increaseDialogOpen, setIncreaseDialogOpen] = useState(false)
+  const [increasePrefillQty, setIncreasePrefillQty] = useState<number | null>(null)
 
   const apiBaseUrl = getApiBaseUrl()
   const token = session?.accessToken
@@ -333,6 +334,7 @@ export function InventoryPage() {
           setStockDialogOpen(true)
         }}
         onRequestIncrease={() => {
+          setIncreasePrefillQty(null)
           setIncreaseDialogOpen(true)
         }}
       />
@@ -341,6 +343,7 @@ export function InventoryPage() {
         open={increaseDialogOpen}
         onOpenChange={setIncreaseDialogOpen}
         stock={selected}
+        initialQuantity={increasePrefillQty}
         onRequest={async ({ quantity, price }) => {
           const tokenStr = token
           if (!apiBaseUrl || !tokenStr) throw new Error("Missing API base URL or auth token")
@@ -377,7 +380,19 @@ export function InventoryPage() {
           const rows = await apiSearchStock(apiBaseUrl, tokenStr, q)
           return rows.map(mapApiStockRow)
         }}
+        onSearchExistingStock={async (q) => {
+          const tokenStr = token
+          if (!apiBaseUrl || !tokenStr) return []
+          const rows = await apiSearchStock(apiBaseUrl, tokenStr, q)
+          return rows.map(mapApiStockRow)
+        }}
         stock={selected}
+        onUseExistingStock={(existing, opts) => {
+          setSelected(existing)
+          setIncreasePrefillQty(opts?.quantity ?? null)
+          setStockDialogOpen(false)
+          setIncreaseDialogOpen(true)
+        }}
         onSave={async (next) => {
           const tokenStr = token
           if (!apiBaseUrl || !tokenStr) throw new Error("Missing API base URL or auth token")

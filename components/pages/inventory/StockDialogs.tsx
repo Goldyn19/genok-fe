@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { LocationTree } from "@/components/pages/inventory/LocationTree"
 import { cn } from "@/lib/utils"
 
@@ -57,6 +58,40 @@ function validateDraft(d: StockDraft, mode: "create" | "edit", mismatchError: st
   return errors
 }
 
+function normalizeText(value: string | null | undefined) {
+  return (value ?? "").trim().toLowerCase()
+}
+
+function normalizeBrand(isCaterpillar: boolean, brand: string | null | undefined) {
+  return isCaterpillar ? "" : normalizeText(brand)
+}
+
+function locationPathFromLookup(lookup: Map<string, Location>, id: string) {
+  const parts: string[] = []
+  const seen = new Set<string>()
+  let current = lookup.get(id)
+
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id)
+    parts.unshift(current.location)
+    current = current.parent ? lookup.get(current.parent) : undefined
+  }
+
+  return parts.join(" / ")
+}
+
+function formatLocationPaths(allLocations: Location[], ids: string[]) {
+  if (ids.length === 0) return "—"
+  const lookup = new Map(allLocations.map((l) => [l.id, l]))
+  return ids
+    .map((id) => {
+      const full = locationPathFromLookup(lookup, id)
+      if (full) return full
+      return lookup.get(id)?.location ?? id
+    })
+    .join(", ")
+}
+
 export function CreateOrUpdateStockDialog({
   open,
   onOpenChange,
@@ -64,8 +99,10 @@ export function CreateOrUpdateStockDialog({
   stockOptions,
   onSearchLocations,
   onSearchParentStock,
+  onSearchExistingStock,
   stock,
   onSave,
+  onUseExistingStock,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -73,8 +110,10 @@ export function CreateOrUpdateStockDialog({
   stockOptions: Stock[]
   onSearchLocations?: (q: string) => Promise<Location[]>
   onSearchParentStock?: (q: string) => Promise<Stock[]>
+  onSearchExistingStock?: (q: string) => Promise<Stock[]>
   stock: Stock | null
   onSave: (next: Stock) => Promise<void>
+  onUseExistingStock?: (existing: Stock, opts?: { quantity?: number | null }) => void
 }) {
   const [draft, setDraft] = useState<StockDraft>(() => toDraft(stock, locations))
   const [submitted, setSubmitted] = useState(false)
@@ -86,8 +125,11 @@ export function CreateOrUpdateStockDialog({
   const [parentQuery, setParentQuery] = useState("")
   const [parentMatches, setParentMatches] = useState<Stock[] | null>(null)
   const [parentSearching, setParentSearching] = useState(false)
+  const [existingMatches, setExistingMatches] = useState<Stock[] | null>(null)
+  const [existingSearching, setExistingSearching] = useState(false)
 
   const mode: "create" | "edit" = stock ? "edit" : "create"
+  const partNumberTerm = draft.part_number.trim().toLowerCase()
 
   const computedTopLevel = useMemo(() => {
     if (draft.locations.length === 0) return null
@@ -250,6 +292,35 @@ export function CreateOrUpdateStockDialog({
 
   useEffect(() => {
     if (!open) return
+    if (!onSearchExistingStock) return
+    if (!partNumberTerm) {
+      setExistingMatches(null)
+      setExistingSearching(false)
+      return
+    }
+
+    let cancelled = false
+    setExistingSearching(true)
+    const t = setTimeout(() => {
+      onSearchExistingStock(draft.part_number.trim())
+        .then((rows) => {
+          if (!cancelled) setExistingMatches(rows)
+          if (!cancelled) setExistingSearching(false)
+        })
+        .catch(() => {
+          if (!cancelled) setExistingMatches(null)
+          if (!cancelled) setExistingSearching(false)
+        })
+    }, 250)
+
+    return () => {
+      cancelled = true
+      clearTimeout(t)
+    }
+  }, [draft.part_number, onSearchExistingStock, open, partNumberTerm])
+
+  useEffect(() => {
+    if (!open) return
     setDraft(toDraft(stock, locations))
   }, [stock, locations, open])
 
@@ -257,6 +328,36 @@ export function CreateOrUpdateStockDialog({
     () => (submitted ? validateDraft(draft, mode, locationMismatchError) : {}),
     [draft, submitted, mode, locationMismatchError]
   )
+
+  const matchingStocks = useMemo(() => {
+    const source = existingMatches ?? stockOptions
+    if (!partNumberTerm) return []
+    return source
+      .filter((s) => s.id !== stock?.id)
+      .filter((s) => s.part_number.trim().toLowerCase().includes(partNumberTerm))
+      .sort((a, b) => a.part_number.localeCompare(b.part_number))
+      .slice(0, 6)
+  }, [existingMatches, partNumberTerm, stock?.id, stockOptions])
+
+  const exactMatch = useMemo(() => {
+    if (mode !== "create") return null
+    if (!draft.part_number.trim()) return null
+    const source = existingMatches ?? stockOptions
+    const isCaterpillar = draft.is_caterpillar === "true"
+    const isOriginal = draft.is_original === "true"
+    const partNumber = normalizeText(draft.part_number)
+    const brand = normalizeBrand(isCaterpillar, draft.brand)
+    return (
+      source.find((s) => {
+        return (
+          normalizeText(s.part_number) === partNumber &&
+          (s.is_caterpillar ?? true) === isCaterpillar &&
+          (s.is_original ?? true) === isOriginal &&
+          normalizeBrand(s.is_caterpillar ?? true, s.brand) === brand
+        )
+      }) ?? null
+    )
+  }, [draft.brand, draft.is_caterpillar, draft.is_original, draft.part_number, existingMatches, mode, stockOptions])
 
   return (
     <Dialog
@@ -272,6 +373,7 @@ export function CreateOrUpdateStockDialog({
           setLocationMatches(null)
           setParentQuery("")
           setParentMatches(null)
+          setExistingMatches(null)
         }
       }}
     >
@@ -303,6 +405,44 @@ export function CreateOrUpdateStockDialog({
             />
             {errors.part_number && <div className="text-xs text-destructive">{errors.part_number}</div>}
           </div>
+
+          {matchingStocks.length > 0 && (
+            <Alert variant={exactMatch ? "warn" : "info"}>
+              <AlertTitle>{exactMatch ? "Matching stock already exists" : "Similar stocks found"}</AlertTitle>
+              <AlertDescription>
+                {exactMatch
+                  ? "A stock with the same part number, type, and brand already exists. Use Add Stock instead of creating a duplicate row."
+                  : "Stocks with the same part number already exist. Review them before creating a new stock."}
+              </AlertDescription>
+              {existingSearching && <div className="mt-2 text-xs text-muted-foreground">Checking existing stock...</div>}
+              <div className="mt-3 space-y-2">
+                {matchingStocks.map((item) => (
+                  <div key={item.id} className="rounded-md border bg-background px-3 py-2 text-xs">
+                    <div className="font-medium text-foreground">{item.part_number} - {item.part_name}</div>
+                    <div className="mt-1 text-muted-foreground">
+                      Brand: {item.brand?.trim() ? item.brand : "—"} | Type: {(item.is_caterpillar ?? true) ? "Caterpillar" : "Other"} / {(item.is_original ?? true) ? "Original" : "Aftermarket"}
+                    </div>
+                    <div className="mt-1 text-muted-foreground">
+                      Top level: {locations.find((l) => l.id === item.top_level_location)?.location ?? item.top_level_location}
+                    </div>
+                    <div className="mt-1 text-muted-foreground">Locations: {formatLocationPaths(locations, item.locations)}</div>
+                    <div className="mt-1 text-muted-foreground">Balance: {item.balance}</div>
+                    {exactMatch?.id === item.id && onUseExistingStock && (
+                      <div className="mt-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => onUseExistingStock(item, { quantity: Number(draft.balance || 0) || null })}
+                        >
+                          Use Add Stock
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </Alert>
+          )}
 
           <div className="grid gap-2">
             <div className="text-xs font-medium text-muted-foreground">Brand (optional)</div>
@@ -487,6 +627,10 @@ export function CreateOrUpdateStockDialog({
               setSaveError("")
               const nextErrors = validateDraft(draft, mode, locationMismatchError)
               if (Object.keys(nextErrors).length > 0) return
+              if (exactMatch) {
+                setSaveError("This stock already exists. Use Add Stock instead of creating a duplicate stock row.")
+                return
+              }
               const next: Stock = {
                 id: stock?.id ?? `stk_${Math.random().toString(16).slice(2)}`,
                 part_name: draft.part_name.trim(),
@@ -770,11 +914,13 @@ export function RequestStockIncreaseDialog({
   onOpenChange,
   stock,
   onRequest,
+  initialQuantity,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   stock: Stock | null
   onRequest: (payload: { quantity: number; price: number | null }) => Promise<void>
+  initialQuantity?: number | null
 }) {
   const [quantity, setQuantity] = useState("")
   const [price, setPrice] = useState("")
@@ -794,7 +940,7 @@ export function RequestStockIncreaseDialog({
       onOpenChange={(v) => {
         onOpenChange(v)
         if (v) {
-          setQuantity("")
+          setQuantity(initialQuantity != null && initialQuantity > 0 ? String(initialQuantity) : "")
           setPrice("")
           setSubmitted(false)
           setSaving(false)
