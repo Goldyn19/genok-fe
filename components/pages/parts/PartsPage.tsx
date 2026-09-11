@@ -4,7 +4,17 @@ import { useEffect, useMemo, useState } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useSession } from "next-auth/react"
 
-import { apiGetPurchaseDetail, apiGetSalesItem, apiListActivityPage, getApiBaseUrl, type ApiActivityItem, type ApiPurchaseDetail, type ApiSalesItem } from "@/lib/api"
+import {
+  apiGetPurchaseDetail,
+  apiGetSalesItem,
+  apiGetSalesReturn,
+  apiListActivityPage,
+  getApiBaseUrl,
+  type ApiActivityItem,
+  type ApiPurchaseDetail,
+  type ApiSalesItem,
+  type ApiSalesReturnItem,
+} from "@/lib/api"
 import { getErrorMessage } from "@/lib/rbacUtils"
 import { formatCurrency } from "@/lib/metrics"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -80,6 +90,7 @@ export function PartsPage() {
   const [detailError, setDetailError] = useState<string | null>(null)
   const [purchaseDetail, setPurchaseDetail] = useState<ApiPurchaseDetail | null>(null)
   const [salesDetail, setSalesDetail] = useState<ApiSalesItem | null>(null)
+  const [returnDetail, setReturnDetail] = useState<ApiSalesReturnItem | null>(null)
 
   useEffect(() => {
     if (sessionStatus === "loading") return
@@ -139,15 +150,23 @@ export function PartsPage() {
         setDetailError(null)
         setPurchaseDetail(null)
         setSalesDetail(null)
+        setReturnDetail(null)
 
         if (selected.kind === "purchase") {
           const purchaseId = Number.parseInt(selected.id, 10)
           if (!Number.isFinite(purchaseId)) throw new Error("Invalid purchase id")
           const data = await apiGetPurchaseDetail(apiBaseUrl, tokenStr, purchaseId)
           if (!cancelled) setPurchaseDetail(data)
-        } else {
+        } else if (selected.kind === "sale") {
           const data = await apiGetSalesItem(apiBaseUrl, tokenStr, selected.id)
           if (!cancelled) setSalesDetail(data)
+        } else {
+          const data = await apiGetSalesReturn(apiBaseUrl, tokenStr, selected.id)
+          if (!cancelled) setReturnDetail(data)
+          if (!cancelled && data.sales_item) {
+            const salesItem = await apiGetSalesItem(apiBaseUrl, tokenStr, data.sales_item)
+            if (!cancelled) setSalesDetail(salesItem)
+          }
         }
       } catch (e) {
         if (!cancelled) setDetailError(getErrorMessage(e, "Failed to load details"))
@@ -181,8 +200,8 @@ export function PartsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-semibold text-foreground">Purchases &amp; Sales</h1>
-        <p className="text-sm text-muted-foreground">View all purchases and sales, arranged by date.</p>
+        <h1 className="text-xl font-semibold text-foreground">Purchases, Sales &amp; Returns</h1>
+        <p className="text-sm text-muted-foreground">View all purchases, sales, and returns, arranged by date.</p>
       </div>
 
       <Card>
@@ -255,7 +274,9 @@ export function PartsPage() {
                     aria-selected={selected?.kind === r.kind && selected?.id === r.id}
                   >
                     <TableCell className="text-sm">{new Date(r.created_at).toLocaleString()}</TableCell>
-                    <TableCell className="text-sm">{r.kind === "purchase" ? "Purchase" : "Sale"}</TableCell>
+                    <TableCell className="text-sm">
+                      {r.kind === "purchase" ? "Purchase" : r.kind === "sale" ? "Sale" : "Return"}
+                    </TableCell>
                     <TableCell className="text-sm text-muted-foreground">{String(r.id)}</TableCell>
                     <TableCell className="text-sm">
                       <div className="font-medium text-foreground">{r.part_name}</div>
@@ -345,7 +366,7 @@ export function PartsPage() {
                         <div className="font-medium text-foreground">
                           {selected.kind === "purchase"
                             ? (purchaseDetail?.brand ?? "—")
-                            : (salesDetail?.brand ?? "—")}
+                        : (salesDetail?.brand ?? "—")}
                         </div>
                       </div>
                   <div>
@@ -411,6 +432,25 @@ export function PartsPage() {
                           sequence={a.sequence}
                           status={a.status}
                           requiredPermission={a.required_permission}
+                          approvedBy={a.approved_by_details?.full_name || a.approved_by_details?.email || null}
+                          approvedAt={a.approved_at}
+                          reason={a.reason}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {returnDetail && (
+                  <div className="space-y-2">
+                    <div className="text-sm font-medium text-foreground">Return Approval Chain</div>
+                    <div className="space-y-2">
+                      {returnDetail.approvals.map((a) => (
+                        <ApprovalRow
+                          key={a.id}
+                          sequence={a.sequence}
+                          status={a.status}
+                          requiredPermission={a.required_permission ?? undefined}
                           approvedBy={a.approved_by_details?.full_name || a.approved_by_details?.email || null}
                           approvedAt={a.approved_at}
                           reason={a.reason}

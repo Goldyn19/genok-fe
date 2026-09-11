@@ -410,7 +410,7 @@ export type ApiSalesItem = {
 }
 
 export type ApiActivityItem = {
-  kind: "purchase" | "sale"
+  kind: "purchase" | "sale" | "sale_return"
   id: string
   created_at: string
   part_name: string
@@ -976,12 +976,13 @@ async function requestAllPaginatedRows<T>(opts: {
 export async function apiListStockPage(
   baseUrl: string,
   token: string,
-  opts: { page: number; page_size?: number; q?: string }
+  opts: { page: number; page_size?: number; q?: string; include_family?: boolean }
 ) {
   const qs = new URLSearchParams()
   qs.set("page", String(opts.page))
   if (opts.page_size != null) qs.set("page_size", String(opts.page_size))
   if (opts.q && opts.q.trim()) qs.set("q", opts.q.trim())
+  if (opts.include_family && opts.q && opts.q.trim()) qs.set("include_family", "1")
 
   const data = await requestJson<unknown>({
     baseUrl,
