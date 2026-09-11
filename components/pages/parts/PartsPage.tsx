@@ -450,7 +450,7 @@ export function PartsPage() {
                           key={a.id}
                           sequence={a.sequence}
                           status={a.status}
-                          requiredPermission={a.required_permission ?? undefined}
+                          requiredPermission={a.required_permission ?? null}
                           approvedBy={a.approved_by_details?.full_name || a.approved_by_details?.email || null}
                           approvedAt={a.approved_at}
                           reason={a.reason}
