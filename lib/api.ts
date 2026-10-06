@@ -418,7 +418,7 @@ export type ApiActivityItem = {
   quantity: number
   status: string
   location: string
-  total: number | null
+  sold_to: string | null
   created_by_name: string
 }
 

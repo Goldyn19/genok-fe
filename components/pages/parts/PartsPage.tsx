@@ -253,7 +253,7 @@ export function PartsPage() {
                 <TableHead>Part</TableHead>
                 <TableHead>Location</TableHead>
                 <TableHead className="text-right">Qty</TableHead>
-                <TableHead className="text-right">Total</TableHead>
+                <TableHead className="text-right">Sold To</TableHead>
                 <TableHead>Status</TableHead>
               </TableRow>
             </TableHeader>
@@ -284,7 +284,7 @@ export function PartsPage() {
                     </TableCell>
                     <TableCell className="text-sm">{r.location}</TableCell>
                     <TableCell className="text-right tabular-nums">{r.quantity}</TableCell>
-                    <TableCell className="text-right tabular-nums">{formatCurrency(r.total)}</TableCell>
+                    <TableCell className="text-right">{r.sold_to ?? '—'}</TableCell>
                     <TableCell>
                       <Badge variant={statusBadgeVariant(r.status)}>{r.status}</Badge>
                     </TableCell>
@@ -394,8 +394,8 @@ export function PartsPage() {
                     <div className="font-medium text-foreground tabular-nums">{selected.quantity}</div>
                   </div>
                   <div>
-                    <div className="text-xs text-muted-foreground">Total</div>
-                    <div className="font-medium text-foreground tabular-nums">{formatCurrency(selected.total)}</div>
+                    <div className="text-xs text-muted-foreground">Sold To</div>
+                    <div className="font-medium text-foreground">{selected.sold_to ?? '—'}</div>
                   </div>
                   <div className="sm:col-span-2">
                     <div className="text-xs text-muted-foreground">Date</div>
