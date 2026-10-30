@@ -88,6 +88,7 @@ export function AdminFinalPurchaseApprovalsPage() {
   const [queryInput, setQueryInput] = useState("")
   const [query, setQuery] = useState("")
   const [loading, setLoading] = useState(true)
+  const [printing, setPrinting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const [selectedId, setSelectedId] = useState<number | null>(null)
@@ -219,21 +220,15 @@ export function AdminFinalPurchaseApprovalsPage() {
     }
   }
 
-  async function handlePrint() {
+  async function handlePrintAll() {
     if (!canCallApi) return
     try {
-      setActionLoading(true)
-      setActionError(null)
-      const allRows = await apiListAllAdminFinalApprovals(apiBaseUrl, token as string, query)
-
-      if (allRows.length === 0) {
-        alert("No pending final approvals to print.")
-        return
-      }
-
+      setPrinting(true)
+      const allItems = await apiListAllAdminFinalApprovals(apiBaseUrl, token as string, query)
+      
       const printWindow = window.open("", "_blank")
       if (!printWindow) {
-        alert("Please allow popups to print")
+        alert("Please allow popups to print.")
         return
       }
 
@@ -242,34 +237,36 @@ export function AdminFinalPurchaseApprovalsPage() {
           <head>
             <title>Pending Final Approvals</title>
             <style>
-              body { font-family: sans-serif; padding: 20px; color: #333; }
+              body { font-family: sans-serif; padding: 40px; color: #333; }
               table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-              th, td { border: 1px solid #ddd; padding: 10px; text-align: left; font-size: 14px; }
-              th { background-color: #f8f9fa; font-weight: bold; }
-              h1 { font-size: 20px; margin-bottom: 5px; }
-              p { font-size: 12px; color: #666; margin-bottom: 20px; }
+              th, td { border: 1px solid #ddd; padding: 12px 8px; text-align: left; }
+              th { background-color: #f8f9fa; font-weight: bold; text-transform: uppercase; font-size: 12px; }
+              td { font-size: 14px; }
+              h1 { font-size: 20px; margin-bottom: 8px; }
+              .meta { font-size: 12px; color: #666; margin-bottom: 20px; }
               @media print {
-                @page { margin: 1cm; }
+                @page { margin: 2cm; }
+                body { padding: 0; }
               }
             </style>
           </head>
           <body>
-            <h1>Pending Final Approvals</h1>
-            <p>Generated on ${new Date().toLocaleString()} ${query ? `| Filtered by: "${query}"` : ""}</p>
+            <h1>Pending Final Purchase Approvals</h1>
+            <div class="meta">Generated on ${new Date().toLocaleString()} ${query ? `| Search: "${query}"` : ""}</div>
             <table>
               <thead>
                 <tr>
-                  <th>Part Number</th>
-                  <th>Part Name</th>
+                  <th style="width: 60%">Part Name</th>
+                  <th style="width: 40%">Part Number</th>
                 </tr>
               </thead>
               <tbody>
-                ${allRows
+                ${allItems
                   .map(
-                    (row) => `
+                    (item) => `
                   <tr>
-                    <td style="font-family: monospace;">${row.part_number}</td>
-                    <td>${row.name}</td>
+                    <td>${item.name || "—"}</td>
+                    <td style="font-family: monospace;">${item.part_number || "—"}</td>
                   </tr>
                 `
                   )
@@ -277,21 +274,25 @@ export function AdminFinalPurchaseApprovalsPage() {
               </tbody>
             </table>
             <script>
-              window.onload = () => {
+              window.onload = function() {
                 setTimeout(() => {
                   window.print();
+                  window.onafterprint = function() {
+                    window.close();
+                  };
                 }, 500);
               };
             </script>
           </body>
         </html>
       `
+
       printWindow.document.write(html)
       printWindow.document.close()
     } catch (e) {
-      setActionError(getErrorMessage(e, "Failed to prepare print view"))
+      setError(getErrorMessage(e, "Failed to prepare print data"))
     } finally {
-      setActionLoading(false)
+      setPrinting(false)
     }
   }
 
@@ -315,6 +316,14 @@ export function AdminFinalPurchaseApprovalsPage() {
                 <CardDescription>Only purchases with steps 1 and 2 already confirmed appear here.</CardDescription>
               </div>
               <div className="flex w-full gap-2 sm:w-auto">
+                <Button
+                  variant="outline"
+                  onClick={handlePrintAll}
+                  disabled={printing || loading}
+                >
+                  <Printer className="mr-2 h-4 w-4" />
+                  {printing ? "Preparing..." : "Print All"}
+                </Button>
                 <Input
                   placeholder="Search final approvals..."
                   value={queryInput}
@@ -335,10 +344,6 @@ export function AdminFinalPurchaseApprovalsPage() {
                   }}
                 >
                   Search
-                </Button>
-                <Button variant="outline" onClick={handlePrint} disabled={loading || actionLoading}>
-                  <Printer className="mr-2 h-4 w-4" />
-                  Print
                 </Button>
               </div>
             </div>
