@@ -939,7 +939,7 @@ export type ApiPaginated<T> = {
   results: T[]
 }
 
-async function requestAllPaginatedRows<T>(opts: {
+export async function requestAllPaginatedRows<T>(opts: {
   baseUrl: string
   token: string
   path: string
@@ -1144,6 +1144,22 @@ export async function apiListAdminFinalApprovalsPage(
 
   const rows = Array.isArray(data) ? (data as ApiPurchaseListItem[]) : ([] as ApiPurchaseListItem[])
   return { count: rows.length, next: null, previous: null, results: rows } as ApiPaginated<ApiPurchaseListItem>
+}
+
+export async function apiListAllAdminFinalApprovals(
+  baseUrl: string,
+  token: string,
+  search?: string
+) {
+  const qs = new URLSearchParams()
+  if (search && search.trim()) qs.set("search", search.trim())
+  const suffix = qs.toString() ? `?${qs.toString()}` : ""
+
+  return requestAllPaginatedRows<ApiPurchaseListItem>({
+    baseUrl,
+    token,
+    path: `/purchases/purchases/admin-final-approvals/${suffix}`,
+  })
 }
 
 export type ApiAdminFinalBulkApproveFailure = { id: number; error: string }

@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import { useSession } from "next-auth/react"
-import { CheckCircle, Eye, XCircle } from "lucide-react"
+import { CheckCircle, Eye, Printer, XCircle } from "lucide-react"
 
 import {
   apiAdminFinalApprovalsApproveBulk,
   apiApprovePurchase,
   apiGetPurchaseDetail,
   apiListAdminFinalApprovalsPage,
+  apiListAllAdminFinalApprovals,
   getApiBaseUrl,
   type ApiAdminFinalBulkApproveResult,
   type ApiPurchaseDetail,
@@ -218,6 +219,82 @@ export function AdminFinalPurchaseApprovalsPage() {
     }
   }
 
+  async function handlePrint() {
+    if (!canCallApi) return
+    try {
+      setActionLoading(true)
+      setActionError(null)
+      const allRows = await apiListAllAdminFinalApprovals(apiBaseUrl, token as string, query)
+
+      if (allRows.length === 0) {
+        alert("No pending final approvals to print.")
+        return
+      }
+
+      const printWindow = window.open("", "_blank")
+      if (!printWindow) {
+        alert("Please allow popups to print")
+        return
+      }
+
+      const html = `
+        <html>
+          <head>
+            <title>Pending Final Approvals</title>
+            <style>
+              body { font-family: sans-serif; padding: 20px; color: #333; }
+              table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+              th, td { border: 1px solid #ddd; padding: 10px; text-align: left; font-size: 14px; }
+              th { background-color: #f8f9fa; font-weight: bold; }
+              h1 { font-size: 20px; margin-bottom: 5px; }
+              p { font-size: 12px; color: #666; margin-bottom: 20px; }
+              @media print {
+                @page { margin: 1cm; }
+              }
+            </style>
+          </head>
+          <body>
+            <h1>Pending Final Approvals</h1>
+            <p>Generated on ${new Date().toLocaleString()} ${query ? `| Filtered by: "${query}"` : ""}</p>
+            <table>
+              <thead>
+                <tr>
+                  <th>Part Number</th>
+                  <th>Part Name</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${allRows
+                  .map(
+                    (row) => `
+                  <tr>
+                    <td style="font-family: monospace;">${row.part_number}</td>
+                    <td>${row.name}</td>
+                  </tr>
+                `
+                  )
+                  .join("")}
+              </tbody>
+            </table>
+            <script>
+              window.onload = () => {
+                setTimeout(() => {
+                  window.print();
+                }, 500);
+              };
+            </script>
+          </body>
+        </html>
+      `
+      printWindow.document.write(html)
+      printWindow.document.close()
+    } catch (e) {
+      setActionError(getErrorMessage(e, "Failed to prepare print view"))
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -258,6 +335,10 @@ export function AdminFinalPurchaseApprovalsPage() {
                   }}
                 >
                   Search
+                </Button>
+                <Button variant="outline" onClick={handlePrint} disabled={loading || actionLoading}>
+                  <Printer className="mr-2 h-4 w-4" />
+                  Print
                 </Button>
               </div>
             </div>
