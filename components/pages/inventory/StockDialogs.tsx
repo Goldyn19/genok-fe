@@ -420,7 +420,7 @@ export function CreateOrUpdateStockDialog({
                   <div key={item.id} className="rounded-md border bg-background px-3 py-2 text-xs">
                     <div className="font-medium text-foreground">{item.part_number} - {item.part_name}</div>
                     <div className="mt-1 text-muted-foreground">
-                      Brand: {item.brand?.trim() ? item.brand : "—"} | Type: {(item.is_caterpillar ?? true) ? "Caterpillar" : "Other"} / {(item.is_original ?? true) ? "Original" : "Aftermarket"}
+                      Brand: {item.brand?.trim() ? item.brand : "—"} | Type: {(item.is_caterpillar ?? true) ? "Caterpillar" : "Other"} / {(item.is_original ?? true) ? "Original" : <span className="text-red-500 border border-red-500 rounded px-1">China</span>}
                     </div>
                     <div className="mt-1 text-muted-foreground">
                       Top level: {locations.find((l) => l.id === item.top_level_location)?.location ?? item.top_level_location}

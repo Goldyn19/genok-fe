@@ -116,6 +116,7 @@ export function InventoryPage() {
   const [locationDialogOpen, setLocationDialogOpen] = useState(false)
   const [increaseDialogOpen, setIncreaseDialogOpen] = useState(false)
   const [increasePrefillQty, setIncreasePrefillQty] = useState<number | null>(null)
+  const [expandedFamily, setExpandedFamily] = useState(false)
 
   const apiBaseUrl = getApiBaseUrl()
   const token = session?.accessToken
@@ -172,10 +173,16 @@ export function InventoryPage() {
       try {
         setLoading(true)
         setLoadError(null)
-        const res = await apiListStockPage(apiBaseUrl, tokenStr, { page, page_size: PAGE_SIZE, q })
+        const res = await apiListStockPage(apiBaseUrl, tokenStr, { page, page_size: PAGE_SIZE, q, include_family: true })
         if (cancelled) return
         setStock(res.results.map(mapApiStockRow))
         setStockCount(res.count)
+        const qNorm = q.trim().toLowerCase()
+        const expanded =
+          Boolean(qNorm) &&
+          res.results.some((r) => (r.part_number || "").toLowerCase() === qNorm) &&
+          res.results.some((r) => (r.part_number || "").toLowerCase() !== qNorm)
+        setExpandedFamily(expanded)
       } catch (e) {
         if (cancelled) return
         const message =
@@ -194,7 +201,7 @@ export function InventoryPage() {
   }, [apiBaseUrl, token, page, q])
 
   const filtered = useMemo(() => {
-    const term = q.trim().toLowerCase()
+    const term = expandedFamily ? "" : q.trim().toLowerCase()
     return stock.filter((s) => {
       const locationHay = [...stockLocationNames(s, locations), ...stockLocationPaths(s, locations)].join(" ")
       const hay = [s.part_name, s.part_number, s.brand ?? "", locationHay].join(" ").toLowerCase()
@@ -202,7 +209,7 @@ export function InventoryPage() {
       const matchLocation = !locationFilter || s.locations.includes(locationFilter)
       return matchTerm && matchLocation
     })
-  }, [q, stock, locationFilter, locations])
+  }, [q, expandedFamily, stock, locationFilter, locations])
 
   const sorted = useMemo(() => {
     if (!sort) return filtered

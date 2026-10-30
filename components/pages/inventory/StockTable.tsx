@@ -116,7 +116,7 @@ export function StockTable({
                     {(r.is_caterpillar ?? true) && <Badge variant="outline">CAT</Badge>}
                     {!(r.is_caterpillar ?? true) && <Badge variant="outline">Non-CAT</Badge>}
                     {(r.is_original ?? true) && <Badge variant="outline">Original</Badge>}
-                    {!(r.is_original ?? true) && <Badge variant="outline">Aftermarket</Badge>}
+                    {!(r.is_original ?? true) && <Badge variant="china">China</Badge>}
                   </div>
                 )}
               </TableCell>

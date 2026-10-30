@@ -230,14 +230,25 @@ export function GroupsPermissionsPage() {
 }
 
 function flattenLocations(nodes: ApiLocation[]): Array<{ id: string; name: string }> {
-  const out: Array<{ id: string; name: string }> = []
-  const walk = (n: ApiLocation, prefix: string) => {
-    const name = prefix ? `${prefix} / ${n.location}` : n.location
-    out.push({ id: n.id, name })
-    for (const c of n.children ?? []) walk(c, name)
+  const byId = new Map(nodes.map((n) => [n.id, n]))
+
+  const buildName = (node: ApiLocation) => {
+    const parts: string[] = []
+    const seen = new Set<string>()
+    let current: ApiLocation | undefined = node
+
+    while (current && !seen.has(current.id)) {
+      parts.push(current.location)
+      seen.add(current.id)
+      current = current.parent ? byId.get(current.parent) : undefined
+    }
+
+    return parts.reverse().join(" / ")
   }
-  for (const n of nodes) walk(n, "")
-  return out
+
+  return nodes
+    .map((n) => ({ id: n.id, name: buildName(n) || n.location }))
+    .sort((a, b) => a.name.localeCompare(b.name))
 }
 
 function RoleAssignmentsCard(props: { apiBaseUrl: string; token: string }) {

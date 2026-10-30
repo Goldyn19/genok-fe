@@ -83,7 +83,7 @@ export function StockDetailSheet({
               <div className="rounded-lg border bg-card p-4">
                 <div className="text-xs text-muted-foreground">Type</div>
                 <div className="text-sm font-medium text-foreground">
-                  {(stock.is_caterpillar ?? true) ? "Caterpillar" : "Other"} / {(stock.is_original ?? true) ? "Original" : "Aftermarket"}
+                  {(stock.is_caterpillar ?? true) ? "Caterpillar" : "Other"} / {(stock.is_original ?? true) ? "Original" : <span className="text-red-500 border border-red-500 rounded px-1">China</span>}
                 </div>
               </div>
             </div>
